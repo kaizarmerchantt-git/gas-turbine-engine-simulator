@@ -1,0 +1,327 @@
+# Project Scope & Future Extensions
+
+This document outlines what the current simulator covers, where its boundaries are, and how it can be extended step by step. Each section describes a direction, what it would require, and roughly how to get there from the current codebase.
+
+---
+
+## What This Simulator Currently Is
+
+A **0D thermodynamic cycle model** — it computes averaged thermodynamic states (T, P, Mach, entropy, enthalpy) at discrete stations along the engine gas path. Area inputs (A₁, A₂, A₈) serve as scalar boundary conditions for mass flow continuity, not spatial resolution.
+
+It sits at the very front of the engine design chain:
+
+```
+0D Cycle Analysis  →  1D Mean-Line  →  3D CFD / FEA  →  Rig Testing  →  Engine Testing
+      ↑
+  You are here
+```
+
+Everything described below is a forward extension from this starting point.
+
+---
+
+## Extension 1 — Off-Design Performance
+
+### What it means
+The current model is an **on-design point** simulator — it computes performance at a single design condition. Real engines operate across a wide range of shaft speeds, inlet conditions, and power settings where component behaviour deviates from the design intent. Off-design modelling captures this.
+
+### What to add
+- Compressor and turbine **performance maps** (pressure ratio and efficiency as a function of corrected mass flow and corrected speed)
+- A **spool speed** variable that replaces the fixed CPR input
+- A matching procedure that finds the operating point where compressor delivery equals turbine demand at a given throttle and flight condition
+- Surge margin tracking — how close the compressor is to the stall/surge line at any operating point
+
+### How to get there
+1. Obtain or generate compressor and turbine maps (NASA has open-source generic maps; pyCycle can generate them)
+2. Replace the fixed `CPR` input in `engine_helper.py` with a map lookup function
+3. Add a Newton-Raphson or bisection solver to find the matched operating point
+4. Add surge line data and compute margin as a percentage
+
+### Useful tools
+- NASA pyCycle — can generate component maps
+- NASA NPSS (Numerical Propulsion System Simulation) — industry standard for off-design
+- Mattingly, *Elements of Gas Turbine Propulsion* — Chapter 7 covers component matching
+
+---
+
+## Extension 2 — Emissions Estimation
+
+### What it means
+Aviation is responsible for roughly 2.5% of global CO₂ emissions and a significantly larger share of total climate forcing when non-CO₂ effects (NOx, contrails, water vapour) are included. Emissions certification is governed by ICAO CAEP standards, which set binding limits on NOx, CO, unburned hydrocarbons, and smoke for every civil engine type. These limits tighten with each CAEP revision — CAEP/8 and the ongoing CAEP/10 work reflect increasingly stringent targets as the industry moves toward net-zero commitments by 2050.
+
+For an engine designer, this means emissions are no longer a secondary concern addressed after performance targets are met — they are a primary design constraint, often in direct tension with efficiency. Higher combustor temperatures improve thermal efficiency and reduce CO₂, but increase NOx formation exponentially (the Zeldovich mechanism). Managing this trade-off starts at the cycle analysis stage, which is exactly where this simulator sits.
+
+The good news is that Cantera's `equilibrate("HP")` call — already in the codebase — computes the full post-combustion species composition. CO₂, H₂O, CO, NOx (NO + NO₂), and unburned hydrocarbons are all present in `gas[4].X` after every simulation run. The data is already there; it just isn't being surfaced yet.
+
+### What to add
+- Extract species mole fractions from the combustor exit gas object after `equilibrate("HP")`
+- Compute **Emission Index (EI)** [g pollutant / kg fuel] for NO, NO₂, CO, CO₂, H₂O — the standard metric used in ICAO certification
+- Add emissions to the API response and frontend display
+- Sweep EI_NOx and EI_CO against TIT, equivalence ratio φ, combustor pressure loss, and altitude — these sweeps directly show the efficiency-emissions trade-off
+
+### How to get there
+1. After `gas[4].equilibrate("HP")` in `turbojet.py`, read the species: `gas[4]["NO"].X`, `gas[4]["NO2"].X`, `gas[4]["CO"].X`
+2. Convert mole fractions to emission indices:
+   `EI [g/kg_fuel] = (X_species × MW_species) / (mixture_fraction × MW_mix) × 1000`
+3. Add `emissions` dictionary to the output of `calc_thrust()` — this is approximately 20 lines of additional code
+4. Add emissions fields to the Pydantic response schema in `main.py`
+5. Display on the frontend alongside thrust and TSFC
+
+### Why it belongs early in the progression
+Emissions require zero new physics — the combustion chemistry is already being solved. It is the highest-value, lowest-effort extension in this list. More importantly, understanding *why* EI_NOx rises steeply with TIT gives physical intuition that directly informs every subsequent extension, especially the hybrid electric work where reducing peak combustor temperature is one of the core arguments for hybridisation.
+
+### Useful references
+- ICAO Annex 16, Volume II — *Aircraft Engine Emissions*
+- ICAO CAEP emissions databank — https://www.easa.europa.eu/domains/environment/icao-aircraft-engine-emissions-databank
+- Lefebvre & Ballal — *Gas Turbine Combustion* — Chapter on NOx formation
+
+---
+
+## Extension 3 — Multi-Spool Turbofan Cycle
+
+### What it means
+The current turbojet is a single-spool machine — one compressor, one turbine, one shaft. Modern turbofans (including the CF34 modelled in the deck) have two spools: a low-pressure (LP) spool with the fan and LP turbine, and a high-pressure (HP) spool with the HPC and HPT. The bypass stream adds a second flow path.
+
+### What to add
+- Split the compressor into **fan** and **HPC** stages with separate pressure ratios
+- Add a **bypass duct** that carries the fan exit flow directly to a separate nozzle
+- Two turbines on separate shafts, each driving their respective compressor
+- Bypass ratio (BPR) as a design parameter
+- Two nozzle calculations — core and bypass — combined into a net thrust
+
+### How to get there
+1. Extend the station numbering to include bypass stations (standard SAE station 13, 16, 18)
+2. Split `calc_thrust()` into a core stream and bypass stream
+3. Add a second mass flow convergence loop for the bypass nozzle
+4. Validate against the CF34 deck already in the repo — you have ground truth data to check against
+
+### Why this matters
+Building the physics-based turbofan model would let you understand *why* the CF34 deck looks the way it does — rather than just interpolating it. The deck becomes your validation dataset.
+
+---
+
+## Extension 4 — Turboprop and Turboshaft Variant
+
+### What it means
+A turboprop extracts almost all the turbine work as shaft power to drive a propeller, with a small residual jet thrust from the exhaust. A turboshaft (used in helicopters) extracts all of it. The thermodynamic cycle is the same as a turbojet — only the power extraction and thrust calculation change.
+
+### What to add
+- A **power turbine** stage downstream of the gas generator turbine
+- Propeller efficiency η_prop as a parameter
+- Shaft power output [kW] and equivalent shaft horsepower [eshp] as outputs
+- Thrust rewritten as: `F_total = F_jet + (P_shaft × η_prop) / V_flight`
+
+### How to get there
+1. Add a second turbine call in `turbojet.py` after the existing gas generator turbine — this is the free/power turbine
+2. The power turbine extracts the remaining enthalpy drop down to near-ambient pressure
+3. Modify `calc_nozzle()` to handle a low-pressure exhaust (most of the energy is already extracted)
+4. Add propeller efficiency and shaft power to the output dictionary
+
+### Why this matters
+Turboprops dominate regional aviation and military trainers. A turboshaft model is directly relevant to helicopter propulsion and, increasingly, hybrid electric propulsion where the gas turbine drives a generator.
+
+---
+
+## Extension 5 — Hybrid Electric Propulsion Integration
+
+### What it means
+Aviation accounts for approximately 2.5% of global CO₂ emissions today, but that share is projected to grow as other sectors decarbonise faster. Fully electric propulsion is currently limited to small, short-range aircraft by battery energy density — lithium-ion batteries store roughly 250 Wh/kg, compared to approximately 12 000 Wh/kg for Jet-A. For anything beyond short regional routes, batteries alone cannot replace the energy density of liquid fuel in the foreseeable future.
+
+Hybrid electric propulsion is the engineering response to this constraint. By combining a gas turbine with an electric motor, generator, and battery — in various configurations — it becomes possible to operate the gas turbine at or near its most efficient point throughout the mission, use stored electrical energy to cover peak power demands (takeoff, climb), and recover energy during descent. The result is lower average fuel burn without the range limitation of a pure-electric system.
+
+This has moved from research concept to active development programme. Airbus, Rolls-Royce, and GE have all invested in hybrid electric demonstrators. Regulatory frameworks (EASA SC-VTOL, FAA proposed rules) are being written specifically for hybrid and electric propulsion. The fundamental analysis tool at the concept stage is exactly the kind of 0D cycle model built in this repository — it gives you the gas turbine efficiency and fuel burn data that feeds into the system-level trade study.
+
+### Architectures to model
+
+**Parallel hybrid:** Electric motor assists the gas turbine shaft during peak demand (takeoff, climb). The gas turbine runs at a more efficient point during cruise. Requires:
+- Electric motor power [kW] as an additional input
+- Modified shaft power balance: compressor work = turbine work + electric assist
+- Battery state of charge model
+
+**Series hybrid:** Gas turbine drives a generator exclusively; electric motors power the propulsors. No mechanical coupling. Requires:
+- Generator efficiency as a parameter
+- Electric motor and propulsor efficiency chain
+- The gas turbine optimised purely for constant-power generation (most efficient single operating point)
+
+**Turboelectric (no battery):** Gas turbine → generator → electric propulsors, no energy storage. Simpler but less flexible.
+
+### How to get there
+1. Start with the **series architecture** — it's the cleanest to model because the gas turbine and propulsor are fully decoupled
+2. Add a generator efficiency parameter and compute electrical power output from shaft work
+3. Add a propulsor model (electric motor + fan) that converts electrical power to thrust
+4. Build a simple mission profile (takeoff → climb → cruise → descent) and compute total fuel burn and battery energy
+5. Optimise the power split across phases using a simple gradient or sweep
+
+### Why this matters
+This is the architecture underlying projects like NASA X-57, Airbus E-Fan X concepts, and many regional aircraft proposals. The 0D cycle model is exactly the fidelity used in early feasibility studies for these systems.
+
+### Useful references
+- Finger, Braun, Bil — *Comparative Assessment of Parallel and Series Hybrid Architectures*
+- NASA CR-2019-220004 — hybrid electric propulsion sizing methods
+- OpenConcept (NASA) — open-source hybrid electric aircraft sizing tool built on OpenMDAO
+
+---
+
+## Extension 5 — Emissions Estimation
+
+### What it means
+Cantera's `equilibrate("HP")` already computes the full post-combustion species composition — CO₂, H₂O, CO, NOx, unburned hydrocarbons are all there in `gas[4].X`. Turning this into an emissions model requires almost no additional physics.
+
+### What to add
+- Extract species mole fractions from the combustor exit gas object
+- Compute **Emission Index** [g pollutant / kg fuel] for NOx, CO, CO₂, H₂O
+- Add emissions outputs to the API response and frontend display
+- Sweep emissions vs. TIT, equivalence ratio, and altitude
+
+### How to get there
+1. After `gas[4].equilibrate("HP")` in `turbojet.py`, read `gas[4]["NO"].X`, `gas[4]["CO"].X` etc.
+2. Convert mole fractions to emission indices using molecular weights and fuel flow
+3. Add to the output dictionary — this is a 20-line addition to the existing code
+
+### Why this matters
+Emissions are increasingly a certification and regulatory driver. NOx in particular has strict ICAO CAEP limits. Being able to estimate EI_NOx as a function of combustor temperature and equivalence ratio is directly useful in preliminary design.
+
+---
+
+## Extension 6 — 1D Mean-Line Compressor and Turbine Design
+
+
+
+### What it means
+The current multi-stage compressor model distributes pressure rise across stages but has no concept of blade geometry, velocity triangles, or flow angles. A 1D mean-line model resolves the flow at the mean blade radius, introducing rotational speed, blade speed, and velocity triangles — the bridge between cycle analysis and blade design.
+
+### What to add
+- Rotational speed N [rpm] and mean blade radius r [m] as inputs
+- Euler turbomachinery equation: `W = U × ΔCθ` (blade speed × change in whirl velocity)
+- Velocity triangles at rotor inlet and exit: axial, tangential, and relative components
+- De Haller criterion for stall margin
+- Stage loading coefficient ψ = ΔH / U² and flow coefficient φ = Ca / U
+
+### How to get there
+1. Add a `meanline_compressor_stage()` function in `engine_helper.py`
+2. Take the stage ΔT from the existing compressor model as input — match it with the Euler equation
+3. Solve for blade angles and check De Haller number (should be > 0.72 to avoid stall)
+4. Output: velocity triangles, blade angles, stage loading, flow coefficient
+
+### Why this matters
+This is the step that connects thermodynamic cycle work to actual blade design. The output of this function becomes the input to tools like ANSYS BladeGen or NASA's OTAC — and the starting point for CFD meshing and simulation. It bridges the gap between the 0D world of this simulator and the 3D world of production engine design.
+
+---
+
+## Extension 7 — Surrogate Model / Machine Learning Layer
+
+### What it means
+The turbojet model takes 5–40 seconds per point. Parameter sweeps across a 3D design space (CPR × TIT × η_c) become impractical. A surrogate model — trained on cycle analysis outputs — can evaluate the same space in microseconds, enabling optimisation and uncertainty quantification.
+
+### What to add
+- A sweep runner that samples the design space (Latin Hypercube or grid) and stores results
+- A regression model (Gaussian Process, neural network, or polynomial response surface) trained on the sweep data
+- A fast `predict()` function that replaces `calc_thrust()` for optimisation purposes
+- Uncertainty bounds on predictions
+
+### How to get there
+1. Use the existing `/api/turbojet/sweep` endpoint to generate a training dataset — vary CPR, TIT, η_c, altitude, Mach across their ranges
+2. Export via the CSV endpoint
+3. Train a `scikit-learn` Gaussian Process or `tensorflow` neural network on the dataset
+4. Wrap in a new `surrogate.py` module with the same interface as `calc_thrust()`
+5. Validate: compare surrogate predictions against held-out Cantera simulation points
+
+### Why this matters
+The pattern — high-fidelity simulation generates data, ML learns the mapping, surrogate enables fast design space exploration — is one of the most widely adopted approaches in modern aerospace design. It is used in compressor blade optimisation, airframe aeroelastics, and full mission optimisation. Building it on top of a cycle analysis tool is a natural and well-trodden path.
+
+### Useful tools
+- `scikit-learn` — GaussianProcessRegressor, MLPRegressor
+- `scipy.stats.qmc` — Latin Hypercube sampling
+- `openturns` — uncertainty quantification
+
+---
+
+## Extension 8 — Mission Analysis
+
+### What it means
+Instead of computing performance at a single point, a mission analysis integrates fuel burn and range over a complete flight profile — takeoff, climb, cruise, descent, reserve. This is how aircraft range and payload-range diagrams are generated.
+
+### What to add
+- A mission profile definition: altitude and Mach as a function of distance or time
+- Numerical integration of fuel burn: `dW_fuel/dt = mdot_fuel(alt, Mach, throttle)`
+- Breguet range equation as a closed-form check
+- Payload-range diagram generation
+- For hybrid: battery state of charge integrated alongside fuel burn
+
+### How to get there
+1. Write a `mission.py` module that takes a list of (altitude, Mach, throttle, duration) segments
+2. For each segment, call `calc_thrust()` or the CF34 deck to get fuel flow
+3. Integrate fuel burn over the segment: `ΔW_fuel = mdot_fuel × Δt`
+4. Sum across segments for total fuel burn and range
+5. Add to the API as a new endpoint: `POST /api/turbojet/mission`
+
+---
+
+## Extension 9 — Noise Estimation (Preliminary)
+
+### What it means
+Jet noise is a first-order function of exhaust velocity and nozzle area — both of which the current model already computes. A simplified acoustic model can estimate source noise levels without any acoustic simulation.
+
+### What to add
+- Stone's jet noise model or the simplified SAE ARP876 approach
+- Perceived Noise Level (PNdB) as a function of exhaust velocity, temperature, and observer distance
+- Comparison across throttle settings and nozzle geometries
+
+### How to get there
+1. Use nozzle exit velocity `V_exit` and temperature `T_exit` already computed in `calc_nozzle()`
+2. Apply Stone's jet noise correlation: `SPL = f(V_exit, T_exit, A_nozzle, observer_distance)`
+3. Add as an optional output flag to the existing single-point endpoint
+
+---
+
+## Recommended Progression Path
+
+If you are working through these extensions as a learning journey, this order makes the most sense:
+
+```
+Current state (0D on-design)
+        │
+        ▼
+Extension 2 — Emissions             (~20 lines, data already in Cantera — do this first)
+        │
+        ▼
+Extension 3 — Turbofan cycle        (build intuition for the CF34 deck; use it as validation)
+        │
+        ▼
+Extension 1 — Off-design maps       (component matching — core turbomachinery concept)
+        │
+        ▼
+Extension 6 — Mean-line design      (bridges cycle → blade geometry)
+        │
+        ▼
+Extension 4 — Turboprop/Turboshaft  (small incremental step, opens up helicopter/UAV domain)
+        │
+        ▼
+Extension 8 — Mission analysis      (connects engine performance to aircraft-level metrics)
+        │
+        ▼
+Extension 7 — Surrogate / ML        (accelerates design space exploration across all above)
+        │
+        ▼
+Extension 5 — Hybrid electric       (system-level integration, brings everything together)
+        │
+        ▼
+Extension 9 — Noise                 (add-on at any stage once nozzle data is available)
+```
+
+Each step uses the previous one as its foundation. The progression moves from thermodynamics → turbomachinery → aircraft systems → advanced propulsion — which mirrors the natural curriculum of an aerospace propulsion programme.
+
+---
+
+## References and Tools for Further Study
+
+| Resource | Relevant to |
+|---|---|
+| Mattingly — *Elements of Propulsion: Gas Turbines and Rockets* | All extensions |
+| Walsh & Fletcher — *Gas Turbine Performance* | Off-design, component maps |
+| Dixon & Hall — *Fluid Mechanics and Thermodynamics of Turbomachinery* | Mean-line, blade design |
+| NASA pyCycle / OpenMDAO | Turbofan cycle, off-design |
+| Cantera documentation | Emissions, combustion chemistry |
+| OpenConcept (NASA) | Mission analysis, hybrid electric sizing |
+| Finger, Braun, Bil (2019) | Hybrid electric architecture comparison |
+| NASA CR-2019-220004 | Hybrid electric propulsion sizing |
