@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gas Turbine Engine Simulator</title>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root {
+      --bg:      #0e1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --acc1:    #58a6ff;
+      --acc2:    #3fb950;
+      --acc3:    #f78166;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --mono:    'Courier New', monospace;
+      --r:       9px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; }
+
+    .shell { display: flex; flex-direction: column; min-height: 100vh; }
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 20px; height: 54px; display: flex; align-items: center;
+      justify-content: space-between; position: sticky; top: 0; z-index: 200;
+    }
+    .h-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; }
+    .h-sub  { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    .eng-tabs { display: flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: 7px; }
+    .eng-tab { padding: 5px 15px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); background: transparent; transition: all .15s; }
+    .eng-tab:hover { color: var(--text); border-color: var(--border); }
+    .eng-tab.tj { background: rgba(88,166,255,.15); color: var(--acc1); border-color: var(--acc1); }
+    .eng-tab.tf { background: rgba(63,185,80,.15);  color: var(--acc2); border-color: var(--acc2); }
+
+    .grid { display: grid; grid-template-columns: 330px 1fr; flex: 1; min-height: 0; }
+    .sidebar { border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .content { overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+
+    .card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .card-hd { padding: 9px 13px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .card-bd { padding: 13px; display: flex; flex-direction: column; gap: 9px; }
+
+    .field { display: flex; flex-direction: column; gap: 3px; }
+    .field label { font-size: 11px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
+    .field label span { color: var(--acc1); font-family: var(--mono); font-weight: 700; }
+    .field input[type=range] { width: 100%; accent-color: var(--acc1); cursor: pointer; height: 4px; }
+    .field input[type=number], .field select {
+      width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); padding: 6px 9px; font-size: 13px; outline: none; transition: border-color .15s;
+    }
+    .field input[type=number]:focus, .field select:focus { border-color: var(--acc1); }
+    .row2 { display: flex; gap: 7px; }
+    .row2 .field { flex: 1; }
+
+    .btn { padding: 8px 16px; border-radius: 7px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+    .btn-tj { background: var(--acc1); color: #000; }
+    .btn-tf { background: var(--acc2); color: #000; }
+    .btn-tj:hover { filter: brightness(1.1); }
+    .btn-tf:hover { filter: brightness(1.1); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; filter: none; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { border-color: var(--acc1); color: var(--acc1); }
+    .btn-sm { padding: 5px 11px; font-size: 12px; }
+    .btn-row { display: flex; gap: 8px; }
+
+    .mode-tog { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .mode-btn { flex: 1; padding: 6px; text-align: center; font-size: 12px; font-weight: 600; cursor: pointer; background: transparent; border: none; color: var(--muted); transition: all .15s; }
+    .mode-btn.active { background: var(--surface); color: var(--text); }
+
+    .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; }
+    .kpi-lbl { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .kpi-val { font-size: 24px; font-weight: 700; font-family: var(--mono); margin-top: 3px; line-height: 1; }
+    .kpi-unit { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .kpi.hi-tj { border-color: var(--acc1); }
+    .kpi.hi-tj .kpi-val { color: var(--acc1); }
+    .kpi.hi-tf { border-color: var(--acc2); }
+    .kpi.hi-tf .kpi-val { color: var(--acc2); }
+
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 13px; }
+    .chart-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 10px; }
+    canvas { width: 100% !important; }
+
+    .st-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .st-table th { text-align: left; color: var(--muted); font-size: 10px; padding: 5px 9px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .5px; }
+    .st-table td { padding: 6px 9px; border-bottom: 1px solid rgba(48,54,61,.5); font-family: var(--mono); }
+    .st-table .lbl { font-family: -apple-system, sans-serif; color: var(--muted); font-size: 12px; }
+    .hot  { color: #f78166; }
+    .cool { color: #79c0ff; }
+    .st-table tr:hover td { background: rgba(255,255,255,.02); }
+
+    .alert { padding: 9px 13px; border-radius: 7px; font-size: 13px; display: flex; align-items: flex-start; gap: 8px; }
+    .a-info { background: rgba(88,166,255,.1);  border: 1px solid rgba(88,166,255,.3);  color: #79c0ff; }
+    .a-ok   { background: rgba(35,134,54,.15);  border: 1px solid rgba(35,134,54,.4);   color: var(--acc2); }
+    .a-warn { background: rgba(158,106,3,.15);  border: 1px solid rgba(158,106,3,.4);   color: #d29922; }
+    .a-err  { background: rgba(218,54,51,.15);  border: 1px solid rgba(218,54,51,.4);   color: #ff7b72; }
+
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.2); border-top-color: currentColor; border-radius: 50%; animation: rot .7s linear infinite; }
+    @keyframes rot { to { transform: rotate(360deg); } }
+
+    .err-list { margin-top: 10px; }
+    .err-list summary { cursor: pointer; font-size: 12px; color: #ff7b72; padding: 4px 0; user-select: none; }
+    .err-item { font-size: 11px; font-family: var(--mono); color: var(--muted); padding: 3px 0 3px 12px; border-left: 2px solid var(--border); margin-top: 4px; }
+
+    .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700; }
+    .badge-tf { background: rgba(63,185,80,.2); color: var(--acc2); }
+    .divider  { height: 1px; background: var(--border); margin: 3px 0; }
+    .spec-row { display: flex; justify-content: space-between; font-size: 12px; }
+    .spec-row span:first-child { color: var(--muted); }
+    .spec-row span:last-child  { font-family: var(--mono); font-weight: 700; }
+
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+      .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+      .chart-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+const API = "http://localhost:8000";
+
+/* ── helpers ─────────────────────────────────────────────────────────────── */
+const fmt = (v, dp=2) => (v==null||isNaN(v)) ? "—" : Number(v).toFixed(dp);
+
+function useChart(ref, type, data, opts) {
+  const inst = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    if (inst.current) inst.current.destroy();
+    if (!data) { inst.current = null; return; }
+    inst.current = new Chart(ref.current, { type, data, options: opts });
+    return () => { if (inst.current) { inst.current.destroy(); inst.current = null; } };
+  }, [data]);
+}
+
+function downloadCSV(text, name) {
+  const a = Object.assign(document.createElement("a"), {
+    href: URL.createObjectURL(new Blob([text], { type:"text/csv" })),
+    download: name,
+  });
+  a.click();
+}
+
+/* ── form controls ───────────────────────────────────────────────────────── */
+function Slider({ label, unit, value, min, max, step, onChange, dp=2 }) {
+  return (
+    <div className="field">
+      <label>{label}<span>{Number(value).toFixed(dp)} {unit}</span></label>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))} />
+    </div>
+  );
+}
+function Num({ label, unit, value, min, max, step=1, onChange, dp=0 }) {
+  return (
+    <div className="field">
+      <label>{label}<span style={{color:"var(--muted)"}}>{unit}</span></label>
+      <input type="number" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))} />
+    </div>
+  );
+}
+
+/* ── KPI card ────────────────────────────────────────────────────────────── */
+function KPI({ label, value, unit, cls="" }) {
+  return (
+    <div className={`kpi ${cls}`}>
+      <div className="kpi-lbl">{label}</div>
+      <div className="kpi-val">{value ?? "—"}</div>
+      <div className="kpi-unit">{unit}</div>
+    </div>
+  );
+}
+
+/* ── Station table ───────────────────────────────────────────────────────── */
+function StationTable({ stations }) {
+  if (!stations) return null;
+  const ORDER = ["a","1","2","3","4","5","8"];
+  return (
+    <table className="st-table">
+      <thead>
+        <tr>
+          <th>Stn</th><th>Name</th><th>Mach</th>
+          <th>T [K]</th><th>P [atm]</th><th>s [J/kg·K]</th>
+        </tr>
+      </thead>
+      <tbody>
+        {ORDER.filter(id => stations[id]).map(id => {
+          const s = stations[id];
+          return (
+            <tr key={id}>
+              <td><strong>{id}</strong></td>
+              <td className="lbl">{s.label}</td>
+              <td>{fmt(s.Mach,3)}</td>
+              <td className={s.T_K > 700 ? "hot" : "cool"}>{fmt(s.T_K,0)}</td>
+              <td>{fmt(s.P_atm,3)}</td>
+              <td>{s.s_JkgK != null ? fmt(s.s_JkgK,0) : "—"}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/* ── T-s Diagram ─────────────────────────────────────────────────────────── */
+function TsDiagram({ tsData }) {
+  const ref  = useRef();
+  const pts  = tsData?.points ?? [];
+
+  const chartData = pts.length > 0 ? {
+    datasets: [{
+      label: "Brayton Cycle",
+      data: pts.map(p => ({ x: p.s_JkgK, y: p.T_K })),
+      borderColor: "rgb(88,166,255)",
+      backgroundColor: "rgba(88,166,255,.08)",
+      fill: false,
+      showLine: true,
+      tension: 0.15,
+      pointRadius: 6,
+      pointBackgroundColor: pts.map(p => (p.station==="4"||p.station==="5") ? "#f78166" : "#58a6ff"),
+      pointBorderColor: "#0e1117",
+      pointBorderWidth: 1.5,
+    }],
+  } : null;
+
+  const opts = {
+    animation: false, responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: {
+        label: ctx => {
+          const p = pts[ctx.dataIndex];
+          return p ? `[${p.station}] ${p.label}  T=${fmt(p.T_K,0)} K  s=${fmt(p.s_JkgK,0)} J/kg·K  P=${fmt(p.P_atm,3)} atm` : "";
+        }
+      }}
+    },
+    scales: {
+      x: { type:"linear", title:{display:true,text:"Specific Entropy s [J/(kg·K)]",color:"#8b949e"}, ticks:{color:"#8b949e"}, grid:{color:"rgba(48,54,61,.6)"} },
+      y: { title:{display:true,text:"Temperature T [K]",color:"#8b949e"}, ticks:{color:"#8b949e"}, grid:{color:"rgba(48,54,61,.6)"} },
+    },
+  };
+
+  useChart(ref, "line", chartData, opts);
+  if (!pts.length) return null;
+
+  return (
+    <div className="chart-card" style={{marginTop:16}}>
+      <div className="chart-title">T–s Diagram (Brayton Cycle)</div>
+      <canvas ref={ref} />
+      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:10}}>
+        {pts.map(p => (
+          <div key={p.station} style={{fontSize:11,color:"var(--muted)"}}>
+            <strong style={{color:(p.station==="4"||p.station==="5")?"#f78166":"var(--acc1)"}}>
+              {p.station}
+            </strong>: {p.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Sweep charts ────────────────────────────────────────────────────────── */
+/* All hooks are declared BEFORE any conditional return — React Rules of Hooks */
+function SweepCharts({ sweepData, sweepParam, engineType }) {
+  const r1 = useRef(), r2 = useRef(), r3 = useRef();
+
+  const acc  = engineType==="tj" ? "rgb(88,166,255)" : "rgb(63,185,80)";
+  const fill = engineType==="tj" ? "rgba(88,166,255,.1)" : "rgba(63,185,80,.1)";
+  const pts  = sweepData?.points?.filter(p => !p.error) ?? [];
+
+  /* x-axis key — must match backend return keys exactly */
+  const xKey = sweepParam==="altitude" ? "alt_ft"
+             : sweepParam==="mach"     ? "Mach"
+             : engineType==="tj"       ? "throttle_pos" : "PC";
+
+  const xLabel = sweepParam==="altitude" ? "Altitude [ft]"
+               : sweepParam==="mach"     ? "Mach Number"
+               : engineType==="tj"       ? "Throttle Position" : "Power Code (PC)";
+
+  const tsfc_unit   = engineType==="tj" ? "TSFC [kg/(kN·h)]" : "TSFC [lbm/(lbf·h)]";
+  const extra_label = engineType==="tj" ? "SAR [nm/kg]"
+                    : sweepParam==="altitude" ? "OPR" : "BPR";
+
+  /* build {x,y} point arrays — safe when pts is empty */
+  const mkPts = fn => pts.map(p => ({ x: p[xKey] ?? 0, y: fn(p) }));
+  const thrustPts = mkPts(p => p["Fn_kN"] ?? p["T"] ?? 0);
+  const tsfcPts   = mkPts(p => p["TSFC"] ?? 0);
+  const extraPts  = mkPts(p =>
+    engineType==="tj"          ? (p["SAR"]  ?? 0)
+    : sweepParam==="altitude"  ? (p["OPR"]  ?? 0)
+    :                            (p["BPR"]  ?? 0)
+  );
+
+  const mkDS = (label, data, color) => ({
+    label, data, borderColor:color, backgroundColor:fill,
+    fill:true, tension:0.35, pointRadius:3, showLine:true,
+  });
+
+  /* x-axis MUST be type:"linear" for {x,y} point objects — Chart.js requirement */
+  const mkOpts = (xTitle, yTitle) => ({
+    animation: false, responsive: true,
+    plugins: { legend:{display:false}, tooltip:{callbacks:{label: ctx=>` ${Number(ctx.parsed.y).toFixed(4)}`}} },
+    scales: {
+      x: { type:"linear", ticks:{color:"#8b949e",maxTicksLimit:8}, grid:{color:"rgba(48,54,61,.6)"}, title:{display:true,text:xTitle,color:"#8b949e"} },
+      y: { ticks:{color:"#8b949e"}, grid:{color:"rgba(48,54,61,.6)"}, title:{display:true,text:yTitle,color:"#8b949e"} },
+    },
+  });
+
+  /* All three useChart calls unconditional — never skipped */
+  useChart(r1,"line", pts.length ? {datasets:[mkDS("Thrust",thrustPts,acc)]}             : null, mkOpts(xLabel,"Net Thrust [kN]"));
+  useChart(r2,"line", pts.length ? {datasets:[mkDS("TSFC",tsfcPts,"rgb(248,130,90)")]}   : null, mkOpts(xLabel,tsfc_unit));
+  useChart(r3,"line", pts.length ? {datasets:[mkDS(extra_label,extraPts,"rgb(210,153,34)")]} : null, mkOpts(xLabel,extra_label));
+
+  const errPts = sweepData?.points?.filter(p => p.error) ?? [];
+
+  /* conditional render is safe — all hooks already ran above */
+  if (!pts.length && !errPts.length) return null;
+
+  return (
+    <div>
+      {pts.length > 0 && (
+        <>
+          <div className="chart-grid">
+            <div className="chart-card"><div className="chart-title">Net Thrust</div><canvas ref={r1}/></div>
+            <div className="chart-card"><div className="chart-title">{tsfc_unit}</div><canvas ref={r2}/></div>
+          </div>
+          <div style={{marginTop:14}}>
+            <div className="chart-card"><div className="chart-title">{extra_label}</div><canvas ref={r3}/></div>
+          </div>
+        </>
+      )}
+      {errPts.length > 0 && (
+        <details className="err-list">
+          <summary>⚠ {errPts.length} sweep point{errPts.length>1?"s":""} failed to converge</summary>
+          {errPts.map((p,i) => (
+            <div key={i} className="err-item">
+              {sweepParam}: {fmt(p[xKey]??p[sweepParam]??"?",3)} — {p.error}
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TURBOJET PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+const TJ_DEF = {
+  alt:35000, mach:0.8, throttle:1.0,
+  A1:0.30, A2:0.32, A8:0.27, compStages:10, turbStages:2,
+  etaI:0.98, CPR:6.1, etaC:0.80,
+  etaB:0.90, dpP:0.06, maxF:0.25, minF:0.125, Vnom:45, Tmax:1200,
+  etaT:0.80, mechLoss:0.99, etaNoz:0.80,
+};
+
+function TurbojetPanel() {
+  const [mode, setMode] = useState("single");
+  const [p, setP]       = useState(TJ_DEF);
+  const set = (k,v) => setP(prev => ({...prev,[k]:v}));
+
+  const [sw, setSw] = useState({
+    param:"altitude", altStart:0, altEnd:40000, machStart:0, machEnd:0.8,
+    thrStart:0.5, thrEnd:1.0, nSteps:10, fixedAlt:35000, fixedMach:0.8,
+  });
+  const setSW = (k,v) => setSw(prev=>({...prev,[k]:v}));
+
+  const [result,    setResult]    = useState(null);
+  const [tsData,    setTsData]    = useState(null);
+  const [sweepData, setSweepData] = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [tsLoading, setTsLoading] = useState(false);
+  const [error,     setError]     = useState(null);
+  const [csvBusy,   setCsvBusy]   = useState(false);
+
+  const makeBody = () => ({
+    eng_param: { A1:p.A1, A2:p.A2, comp_n_stages:p.compStages, turb_n_stages:p.turbStages, A8:p.A8 },
+    eng_perf:  { eta_i:p.etaI, CPR:p.CPR, eta_c:p.etaC, eta_b:p.etaB, dp_over_p:p.dpP,
+                 max_f:p.maxF, min_f:p.minF, V_nominal:p.Vnom, T_max:p.Tmax,
+                 eta_t:p.etaT, mech_loss:p.mechLoss, eta_noz:p.etaNoz },
+    throttle_pos:p.throttle, alt:p.alt, M_i:p.mach, mdot_guess:20,
+  });
+
+  const makeSweepBody = () => ({
+    ...makeBody(),
+    sweep_param:sw.param,
+    alt_start:sw.altStart, alt_end:sw.altEnd,
+    mach_start:sw.machStart, mach_end:sw.machEnd,
+    throttle_start:sw.thrStart, throttle_end:sw.thrEnd,
+    n_steps:sw.nSteps, fixed_alt:sw.fixedAlt, fixed_mach:sw.fixedMach,
+  });
+
+  const post = async (url, payload) => {
+    const r = await fetch(`${API}${url}`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
+    });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.detail || r.statusText); }
+    return r.json();
+  };
+
+  const runSingle = async () => {
+    setLoading(true); setError(null); setResult(null); setTsData(null);
+    try {
+      const r = await post("/api/turbojet/single", makeBody());
+      setResult(r);
+      setTsLoading(true);
+      try { setTsData(await post("/api/turbojet/ts_diagram", makeBody())); } catch(_) {}
+      setTsLoading(false);
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const runSweep = async () => {
+    setLoading(true); setError(null); setSweepData(null);
+    try { setSweepData(await post("/api/turbojet/sweep", makeSweepBody())); }
+    catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const doCSV = async () => {
+    setCsvBusy(true);
+    try {
+      const r = await fetch(`${API}/api/turbojet/sweep/csv`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(makeSweepBody()),
+      });
+      if (!r.ok) throw new Error(r.statusText);
+      downloadCSV(await r.text(), `turbojet_sweep_${sw.param}.csv`);
+    } catch(e) { setError(e.message); }
+    setCsvBusy(false);
+  };
+
+  const reset = () => { setP(TJ_DEF); setResult(null); setTsData(null); setSweepData(null); setError(null); };
+
+  return (
+    <div className="grid">
+      {/* ── sidebar ──────────────────────────────── */}
+      <div className="sidebar">
+        <div className="card">
+          <div className="card-hd">Mode</div>
+          <div className="card-bd">
+            <div className="mode-tog">
+              <button className={`mode-btn ${mode==="single"?"active":""}`} onClick={()=>setMode("single")}>Single Point</button>
+              <button className={`mode-btn ${mode==="sweep"?"active":""}`}  onClick={()=>setMode("sweep")}>Sweep</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Flight Conditions</div>
+          <div className="card-bd">
+            <Slider label="Altitude" unit="ft" value={p.alt} min={0} max={50000} step={500} onChange={v=>set("alt",v)} dp={0}/>
+            <Slider label="Mach" unit="" value={p.mach} min={0} max={0.9} step={0.01} onChange={v=>set("mach",v)} dp={2}/>
+            <Slider label="Throttle" unit="" value={p.throttle} min={0.5} max={1.0} step={0.01} onChange={v=>set("throttle",v)} dp={2}/>
+          </div>
+        </div>
+
+        {mode==="sweep" && (
+          <div className="card">
+            <div className="card-hd">Sweep Settings</div>
+            <div className="card-bd">
+              <div className="field">
+                <label>Sweep Parameter</label>
+                <select value={sw.param} onChange={e=>setSW("param",e.target.value)}>
+                  <option value="altitude">Altitude (ft)</option>
+                  <option value="mach">Mach Number</option>
+                  <option value="throttle">Throttle</option>
+                </select>
+              </div>
+              {sw.param==="altitude" && <>
+                <div className="row2">
+                  <Num label="From" unit="ft" value={sw.altStart} min={0} max={50000} step={500} onChange={v=>setSW("altStart",v)}/>
+                  <Num label="To"   unit="ft" value={sw.altEnd}   min={0} max={50000} step={500} onChange={v=>setSW("altEnd",v)}/>
+                </div>
+                <Slider label="Fixed Mach" unit="" value={sw.fixedMach} min={0} max={0.9} step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+              </>}
+              {sw.param==="mach" && <>
+                <div className="row2">
+                  <Num label="From" unit="" value={sw.machStart} min={0} max={0.9} step={0.05} onChange={v=>setSW("machStart",v)} dp={2}/>
+                  <Num label="To"   unit="" value={sw.machEnd}   min={0} max={0.9} step={0.05} onChange={v=>setSW("machEnd",v)} dp={2}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt} min={0} max={50000} step={500} onChange={v=>setSW("fixedAlt",v)} dp={0}/>
+              </>}
+              {sw.param==="throttle" && <>
+                <div className="row2">
+                  <Num label="From" unit="" value={sw.thrStart} min={0.5} max={1.0} step={0.05} onChange={v=>setSW("thrStart",v)} dp={2}/>
+                  <Num label="To"   unit="" value={sw.thrEnd}   min={0.5} max={1.0} step={0.05} onChange={v=>setSW("thrEnd",v)} dp={2}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt}  min={0}   max={50000} step={500}  onChange={v=>setSW("fixedAlt",v)}  dp={0}/>
+                <Slider label="Fixed Mach"     unit=""   value={sw.fixedMach} min={0}   max={0.9}   step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+              </>}
+              <Num label="Steps  (≤15 rec.)" unit="" value={sw.nSteps} min={3} max={30} onChange={v=>setSW("nSteps",v)}/>
+              <div className="alert a-warn" style={{fontSize:11}}>
+                ⚠ Each point ≈ 10–30 s (Cantera). {sw.nSteps} pts ≈ {Math.round(sw.nSteps*20/60)} min
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card">
+          <div className="card-hd">Engine Geometry</div>
+          <div className="card-bd">
+            <Slider label="Inlet area A₁"       unit="m²" value={p.A1} min={0.05} max={2.0} step={0.01} onChange={v=>set("A1",v)}/>
+            <Slider label="Compressor face A₂"  unit="m²" value={p.A2} min={0.05} max={2.0} step={0.01} onChange={v=>set("A2",v)}/>
+            <Slider label="Nozzle throat A₈"    unit="m²" value={p.A8} min={0.02} max={2.0} step={0.01} onChange={v=>set("A8",v)}/>
+            <div className="row2">
+              <Num label="Compressor stages" unit="" value={p.compStages} min={1} max={20} onChange={v=>set("compStages",v)}/>
+              <Num label="Turbine stages"    unit="" value={p.turbStages} min={1} max={6}  onChange={v=>set("turbStages",v)}/>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Compressor</div>
+          <div className="card-bd">
+            <Slider label="Pressure Ratio CPR" unit=""  value={p.CPR}  min={2}    max={40}   step={0.1}   onChange={v=>set("CPR",v)}/>
+            <Slider label="Isentropic Eff η_c"  unit=""  value={p.etaC} min={0.60} max={0.95} step={0.005} onChange={v=>set("etaC",v)}/>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Combustor</div>
+          <div className="card-bd">
+            <Slider label="Efficiency η_b"     unit=""   value={p.etaB} min={0.80} max={1.00} step={0.005} onChange={v=>set("etaB",v)}/>
+            <Slider label="Pressure loss dp/p" unit=""   value={p.dpP}  min={0.02} max={0.15} step={0.005} onChange={v=>set("dpP",v)}/>
+            <Slider label="TIT Limit T_max"    unit="K"  value={p.Tmax} min={900}  max={1900} step={10}    onChange={v=>set("Tmax",v)} dp={0}/>
+            <Slider label="Nominal velocity V" unit="m/s" value={p.Vnom} min={20} max={100}   step={1}     onChange={v=>set("Vnom",v)} dp={0}/>
+            <div className="row2">
+              <Num label="Max fuel φ" unit="" value={p.maxF} min={0.1} max={0.5} step={0.01} onChange={v=>set("maxF",v)} dp={2}/>
+              <Num label="Min fuel φ" unit="" value={p.minF} min={0.05} max={0.3} step={0.01} onChange={v=>set("minF",v)} dp={2}/>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Turbine / Inlet / Nozzle</div>
+          <div className="card-bd">
+            <Slider label="Turbine Eff η_t"  unit="" value={p.etaT}    min={0.60} max={0.95} step={0.005} onChange={v=>set("etaT",v)}/>
+            <Slider label="Mech. Eff η_m"    unit="" value={p.mechLoss} min={0.90} max={1.00} step={0.001} onChange={v=>set("mechLoss",v)}/>
+            <Slider label="Inlet Eff η_i"    unit="" value={p.etaI}    min={0.80} max={1.00} step={0.005} onChange={v=>set("etaI",v)}/>
+            <Slider label="Nozzle Eff η_noz" unit="" value={p.etaNoz}  min={0.60} max={1.00} step={0.005} onChange={v=>set("etaNoz",v)}/>
+          </div>
+        </div>
+
+        <div className="btn-row">
+          <button className="btn btn-tj" style={{flex:3}}
+            onClick={mode==="single" ? runSingle : runSweep} disabled={loading}>
+            {loading
+              ? <><span className="spin"/>Computing…</>
+              : mode==="single" ? "▶  Run Simulation" : `▶  Run Sweep (${sw.nSteps} pts)`}
+          </button>
+          <button className="btn btn-ghost btn-sm" style={{flex:1}} onClick={reset} disabled={loading}>Reset</button>
+        </div>
+
+        {mode==="sweep" && sweepData && (
+          <button className="btn btn-ghost btn-sm" onClick={doCSV} disabled={csvBusy}>
+            {csvBusy ? <><span className="spin"/>Generating…</> : "⬇  Download CSV"}
+          </button>
+        )}
+      </div>
+
+      {/* ── content ──────────────────────────────── */}
+      <div className="content">
+        {error && <div className="alert a-err"><strong>Error:</strong>&nbsp;{error}</div>}
+
+        {!result && !sweepData && !loading && !error && (
+          <div className="alert a-info">
+            Configure parameters on the left, then click <strong>Run Simulation</strong>.<br/><br/>
+            <strong>Requires Cantera</strong> in your Python environment. Each single-point run
+            takes 10–40 s due to multi-stage compressor convergence.
+            See <strong>SETUP_GUIDE.md</strong> for installation instructions.
+          </div>
+        )}
+
+        {loading && (
+          <div className="alert a-warn">
+            <span className="spin" style={{color:"#d29922"}}/>&nbsp;
+            Running Cantera thermochemistry — please wait (10–60 s per point)…
+          </div>
+        )}
+
+        {result && mode==="single" && (
+          <>
+            {result.T_max_limited && (
+              <div className="alert a-warn">
+                ⚠ TIT limiter active — throttle was reduced internally to keep T below T_max = {p.Tmax} K
+              </div>
+            )}
+            {!result.converged && (
+              <div className="alert a-err">
+                ⚠ Mass-flow convergence incomplete — results are approximate.
+              </div>
+            )}
+
+            <div className="kpi-strip">
+              <KPI label="Net Thrust" value={fmt(result.T,2)}              unit="kN"        cls="hi-tj"/>
+              <KPI label="Fuel Flow"  value={fmt(result.mdot_fuel*3600,1)} unit="kg/h"      />
+              <KPI label="TSFC"       value={fmt(result.TSFC,1)}           unit="kg/(kN·h)" />
+              <KPI label="SAR"        value={fmt(result.SAR,4)}            unit="nm/kg"     />
+              <KPI label="Air Flow"   value={fmt(result.mdot_air,1)}       unit="kg/s"      />
+              <KPI label="Nozzle"     value={result.choked?"CHOKED":"Open"} unit=""         cls={result.choked?"hi-tj":""}/>
+            </div>
+
+            <div className="card">
+              <div className="card-hd">Station Data</div>
+              <div className="card-bd" style={{padding:0}}>
+                <StationTable stations={result.stations}/>
+              </div>
+            </div>
+
+            {tsLoading && (
+              <div className="alert a-info"><span className="spin"/>&nbsp; Fetching T–s diagram data…</div>
+            )}
+            {tsData && <TsDiagram tsData={tsData}/>}
+          </>
+        )}
+
+        {sweepData && mode==="sweep" && (
+          <SweepCharts sweepData={sweepData} sweepParam={sweepData.sweep_param} engineType="tj"/>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TURBOFAN PANEL  (CF34-10E deck interpolation)
+   ════════════════════════════════════════════════════════════════════════════ */
+const TF_DEF = { alt:35000, mn:0.8, pc:1.0 };
+
+const CF34_SPECS = [
+  ["Engine",        "GE CF34-10E"],
+  ["Type",          "High-bypass turbofan"],
+  ["BPR (design)",  "~4.9"],
+  ["OPR (design)",  "~28.7"],
+  ["SLS Thrust",    "~82.3 kN"],
+  ["Fan stages",    "1"],
+  ["LPC stages",    "3"],
+  ["HPC stages",    "9"],
+  ["Application",   "Embraer E170/190"],
+  ["Deck source",   "pyCycle / OpenMDAO"],
+];
+
+function TurbofanPanel() {
+  const [mode, setMode] = useState("single");
+  const [p, setP]       = useState(TF_DEF);
+  const set = (k,v) => setP(prev=>({...prev,[k]:v}));
+
+  const [sw, setSw] = useState({
+    param:"altitude", altStart:0, altEnd:40000, mnStart:0.0, mnEnd:0.8,
+    pcStart:0.55, pcEnd:1.0, nSteps:20, fixedAlt:35000, fixedMn:0.8, fixedPc:1.0,
+  });
+  const setSW = (k,v) => setSw(prev=>({...prev,[k]:v}));
+
+  const [result,    setResult]    = useState(null);
+  const [sweepData, setSweepData] = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
+  const [csvBusy,   setCsvBusy]   = useState(false);
+
+  const post = async (url, payload) => {
+    const r = await fetch(`${API}${url}`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
+    });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.detail || r.statusText); }
+    return r.json();
+  };
+
+  const makeSweepBody = () => ({
+    sweep_param:sw.param,
+    alt_start:sw.altStart, alt_end:sw.altEnd,
+    mach_start:sw.mnStart,  mach_end:sw.mnEnd,
+    pc_start:sw.pcStart,    pc_end:sw.pcEnd,
+    n_steps:sw.nSteps,
+    fixed_alt:sw.fixedAlt, fixed_mach:sw.fixedMn, fixed_pc:sw.fixedPc,
+  });
+
+  const runSingle = async () => {
+    setLoading(true); setError(null); setResult(null);
+    try { setResult(await post("/api/turbofan/single", { alt:p.alt, MN:p.mn, PC:p.pc })); }
+    catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const runSweep = async () => {
+    setLoading(true); setError(null); setSweepData(null);
+    try { setSweepData(await post("/api/turbofan/sweep", makeSweepBody())); }
+    catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const doCSV = async () => {
+    setCsvBusy(true);
+    try {
+      const r = await fetch(`${API}/api/turbofan/sweep/csv`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(makeSweepBody()),
+      });
+      if (!r.ok) throw new Error(r.statusText);
+      downloadCSV(await r.text(), `cf34_sweep_${sw.param}.csv`);
+    } catch(e) { setError(e.message); }
+    setCsvBusy(false);
+  };
+
+  const reset = () => { setP(TF_DEF); setResult(null); setSweepData(null); setError(null); };
+
+  return (
+    <div className="grid">
+      {/* ── sidebar ──────────────────────────────── */}
+      <div className="sidebar">
+        <div className="card">
+          <div className="card-hd">Mode</div>
+          <div className="card-bd">
+            <div className="mode-tog">
+              <button className={`mode-btn ${mode==="single"?"active":""}`} onClick={()=>setMode("single")}>Single Point</button>
+              <button className={`mode-btn ${mode==="sweep"?"active":""}`}  onClick={()=>setMode("sweep")}>Sweep</button>
+            </div>
+            <div className="alert a-ok" style={{fontSize:11}}>⚡ Deck interpolation — results in &lt;50 ms</div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Flight Conditions</div>
+          <div className="card-bd">
+            <Slider label="Altitude"         unit="ft" value={p.alt} min={0}    max={42000} step={500}  onChange={v=>set("alt",v)} dp={0}/>
+            <Slider label="Mach"             unit=""   value={p.mn}  min={0.0}  max={0.9}   step={0.01} onChange={v=>set("mn",v)}  dp={2}/>
+            <Slider label="Power Code (PC)"  unit=""   value={p.pc}  min={0.55} max={1.0}   step={0.05} onChange={v=>set("pc",v)}  dp={2}/>
+          </div>
+        </div>
+
+        {mode==="sweep" && (
+          <div className="card">
+            <div className="card-hd">Sweep Settings</div>
+            <div className="card-bd">
+              <div className="field">
+                <label>Sweep Parameter</label>
+                <select value={sw.param} onChange={e=>setSW("param",e.target.value)}>
+                  <option value="altitude">Altitude (ft)</option>
+                  <option value="mach">Mach Number</option>
+                  <option value="throttle">Power Code (PC)</option>
+                </select>
+              </div>
+              {sw.param==="altitude" && <>
+                <div className="row2">
+                  <Num label="From" unit="ft" value={sw.altStart} min={0}    max={42000} step={500}  onChange={v=>setSW("altStart",v)}/>
+                  <Num label="To"   unit="ft" value={sw.altEnd}   min={0}    max={42000} step={500}  onChange={v=>setSW("altEnd",v)}/>
+                </div>
+                <Slider label="Fixed Mach" unit="" value={sw.fixedMn} min={0.0}  max={0.9} step={0.01} onChange={v=>setSW("fixedMn",v)} dp={2}/>
+                <Slider label="Fixed PC"   unit="" value={sw.fixedPc} min={0.55} max={1.0} step={0.05} onChange={v=>setSW("fixedPc",v)} dp={2}/>
+              </>}
+              {sw.param==="mach" && <>
+                <div className="row2">
+                  <Num label="From" unit="" value={sw.mnStart} min={0.0} max={0.9} step={0.05} onChange={v=>setSW("mnStart",v)} dp={2}/>
+                  <Num label="To"   unit="" value={sw.mnEnd}   min={0.0} max={0.9} step={0.05} onChange={v=>setSW("mnEnd",v)}   dp={2}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt} min={0}    max={42000} step={500}  onChange={v=>setSW("fixedAlt",v)} dp={0}/>
+                <Slider label="Fixed PC"        unit=""   value={sw.fixedPc}  min={0.55} max={1.0}   step={0.05} onChange={v=>setSW("fixedPc",v)}  dp={2}/>
+              </>}
+              {sw.param==="throttle" && <>
+                <div className="row2">
+                  <Num label="From" unit="" value={sw.pcStart} min={0.55} max={1.0} step={0.05} onChange={v=>setSW("pcStart",v)} dp={2}/>
+                  <Num label="To"   unit="" value={sw.pcEnd}   min={0.55} max={1.0} step={0.05} onChange={v=>setSW("pcEnd",v)}   dp={2}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt} min={0}   max={42000} step={500}  onChange={v=>setSW("fixedAlt",v)} dp={0}/>
+                <Slider label="Fixed Mach"     unit=""   value={sw.fixedMn}  min={0.0} max={0.9}   step={0.01} onChange={v=>setSW("fixedMn",v)}  dp={2}/>
+              </>}
+              <Num label="Steps" unit="" value={sw.nSteps} min={5} max={50} onChange={v=>setSW("nSteps",v)}/>
+            </div>
+          </div>
+        )}
+
+        <div className="card">
+          <div className="card-hd">CF34-10E Engine <span className="badge badge-tf">Fixed Geometry</span></div>
+          <div className="card-bd" style={{gap:6}}>
+            {CF34_SPECS.map(([k,v]) => (
+              <div key={k} className="spec-row"><span>{k}</span><span>{v}</span></div>
+            ))}
+            <div className="divider"/>
+            <div style={{fontSize:11,color:"var(--muted)"}}>
+              Pre-computed by pyCycle/OpenMDAO.
+              19,000 ft data excluded (pyCycle bug #96, fixed PR #106).
+            </div>
+          </div>
+        </div>
+
+        <div className="btn-row">
+          <button className="btn btn-tf" style={{flex:3}}
+            onClick={mode==="single" ? runSingle : runSweep} disabled={loading}>
+            {loading
+              ? <><span className="spin"/>Interpolating…</>
+              : mode==="single" ? "▶  Interpolate Deck" : `▶  Run Sweep (${sw.nSteps} pts)`}
+          </button>
+          <button className="btn btn-ghost btn-sm" style={{flex:1}} onClick={reset} disabled={loading}>Reset</button>
+        </div>
+
+        {mode==="sweep" && sweepData && (
+          <button className="btn btn-ghost btn-sm" onClick={doCSV} disabled={csvBusy}>
+            {csvBusy ? <><span className="spin"/>Generating…</> : "⬇  Download CSV"}
+          </button>
+        )}
+      </div>
+
+      {/* ── content ──────────────────────────────── */}
+      <div className="content">
+        {error && <div className="alert a-err"><strong>Error:</strong>&nbsp;{error}</div>}
+
+        {!result && !sweepData && !loading && !error && (
+          <div className="alert a-info">
+            Set altitude, Mach, and Power Code, then click <strong>Interpolate Deck</strong>.<br/><br/>
+            Thrust displayed in <strong>kN</strong> (converted from lbf).
+            TSFC in <strong>lbm/(lbf·h)</strong> — the pyCycle convention.
+          </div>
+        )}
+
+        {loading && (
+          <div className="alert a-info" style={{borderColor:"var(--acc2)"}}>
+            <span className="spin" style={{color:"var(--acc2)"}}/>&nbsp; Interpolating CF34 deck…
+          </div>
+        )}
+
+        {result && mode==="single" && (
+          <>
+            <div className="kpi-strip">
+              <KPI label="Net Thrust" value={fmt(result.Fn_kN,2)}           unit="kN"           cls="hi-tf"/>
+              <KPI label="Fuel Flow"  value={fmt(result.Wf_kgs*3600,1)}     unit="kg/h"          />
+              <KPI label="TSFC"       value={fmt(result.TSFC,4)}            unit="lbm/(lbf·h)"  />
+              <KPI label="BPR"        value={fmt(result.BPR,2)}             unit=""              />
+              <KPI label="OPR"        value={fmt(result.OPR,2)}             unit=""              />
+              <KPI label="FAR"        value={fmt(result.FAR,5)}             unit=""              />
+            </div>
+
+            <div className="card">
+              <div className="card-hd">Thrust Breakdown</div>
+              <div className="card-bd" style={{flexDirection:"row",flexWrap:"wrap",gap:16}}>
+                {[
+                  ["Gross Thrust",  fmt(result.Fg_kN,2),                         "kN"],
+                  ["Ram Drag",      fmt(result.F_ram * 0.00444822, 2),           "kN"],
+                  ["Net Thrust",    fmt(result.Fn_kN,2),                         "kN"],
+                  ["N1 (LP spool)", result.N1!=null ? fmt(result.N1,1) : "—",    "rpm"],
+                  ["N2 (HP spool)", result.N2!=null ? fmt(result.N2,1) : "—",    "rpm"],
+                ].map(([l,v,u]) => (
+                  <div key={l} style={{flex:"1 1 130px"}}>
+                    <div style={{fontSize:11,color:"var(--muted)",marginBottom:3}}>{l}</div>
+                    <div style={{fontFamily:"var(--mono)",fontSize:20,fontWeight:700}}>{v}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{u}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-hd">Station Conditions (from deck)</div>
+              <table className="st-table">
+                <thead>
+                  <tr><th>Station</th><th>Tot. Temp [R]</th><th>Tot. Press [atm]</th></tr>
+                </thead>
+                <tbody>
+                  {[
+                    ["Inlet",   "inlet:tot:T",  "inlet:tot:P"],
+                    ["Fan",     "fan:tot:T",    "fan:tot:P"],
+                    ["HPC",     "hpc:tot:T",    "hpc:tot:P"],
+                    ["Burner",  "burner:tot:T", "burner:tot:P"],
+                    ["LPT",     "lpt:tot:T",    "lpt:tot:P"],
+                  ].map(([name,tKey,pKey]) => (
+                    <tr key={name}>
+                      <td><strong>{name}</strong></td>
+                      <td className={result[tKey]>2000?"hot":"cool"}>{fmt(result[tKey],0)}</td>
+                      <td>{fmt(result[pKey],3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {sweepData && mode==="sweep" && (
+          <SweepCharts sweepData={sweepData} sweepParam={sweepData.sweep_param} engineType="tf"/>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ROOT APP
+   ════════════════════════════════════════════════════════════════════════════ */
+function App() {
+  const [engine, setEngine] = useState("turbojet");
+  const [apiOk,  setApiOk]  = useState("checking");
+
+  useEffect(() => {
+    fetch(`${API}/`)
+      .then(r => setApiOk(r.ok ? "online" : "error"))
+      .catch(()  => setApiOk("offline"));
+  }, []);
+
+  return (
+    <div className="shell">
+      <header>
+        <div className="h-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc1)" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20"/>
+            <path d="M12 2c-3 3-4 6-4 10s1 7 4 10"/>
+          </svg>
+          Gas Turbine Simulator
+          <span className="h-sub">
+            {apiOk==="online"   && <span style={{color:"var(--acc2)"}}>● API online</span>}
+            {apiOk==="offline"  && <span style={{color:"#f78166"}}>● API offline — run start.sh (see SETUP_GUIDE.md)</span>}
+            {apiOk==="checking" && <span style={{color:"var(--muted)"}}>● checking…</span>}
+          </span>
+        </div>
+
+        <div className="eng-tabs">
+          <button className={`eng-tab ${engine==="turbojet"?"tj":""}`} onClick={()=>setEngine("turbojet")}>
+            ✈ Turbojet
+          </button>
+          <button className={`eng-tab ${engine==="turbofan"?"tf":""}`} onClick={()=>setEngine("turbofan")}>
+            ✈ CF34 Turbofan
+          </button>
+        </div>
+      </header>
+
+      {engine==="turbojet" ? <TurbojetPanel/> : <TurbofanPanel/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

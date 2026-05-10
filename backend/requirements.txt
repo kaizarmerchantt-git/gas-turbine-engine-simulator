@@ -1,0 +1,16 @@
+# Core API framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9   # required by FastAPI for request body parsing
+
+# Validation / serialisation
+pydantic==2.7.1
+
+# Numerics
+numpy==1.26.4
+pandas==2.2.2
+
+# Thermochemistry (turbojet model)
+# Install via conda for easiest setup: conda install -c conda-forge cantera
+# Or via pip on supported platforms:
+cantera==3.0.0
