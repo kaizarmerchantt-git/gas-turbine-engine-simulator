@@ -252,7 +252,8 @@ def calc_thrust(
         sp_dict = gas4.mole_fraction_dict()
         
         def calc_ei(species_name, mw_species):
-            X_spec = sp_dict.get(species_name, 0.0)
+            # Cantera species names in some mechanisms (like Reitz) are lowercase
+            X_spec = sp_dict.get(species_name.lower(), sp_dict.get(species_name.upper(), 0.0))
             return (X_spec * mw_species) / (FAR * MW_mix) * 1000.0
             
         ei_no  = calc_ei("NO", 30.01)
