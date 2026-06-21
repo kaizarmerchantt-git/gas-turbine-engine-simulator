@@ -113,6 +113,7 @@ Post-convergence metrics:
 mdot_fuel = (mixture_fraction / η_combustor) × mdot_air
 TSFC      = (mdot_fuel / mdot_air) / F_specific          [kg/(kN·h)]
 SAR       = V_true / mdot_fuel                           [nm/kg, specific air range]
+EI        = (X_species × MW_species) / (FAR × MW_mixture) × 1000  [g/kg fuel]
 ```
 
 ### `turbofan.py` — CF34-10E deck interpolation
@@ -163,6 +164,7 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 - **Parameter sweeps** — altitude, Mach, or throttle with live charts
 - **Side-by-side comparison** — two engine configurations at the same flight condition
 - **TIT limiter** — automatic fuel cutback if turbine inlet temperature exceeds limit
+- **Emissions tracking** - calculates Emission Index for NOx, CO, and CO2 and classifies combustion state
 - **CSV export** — any sweep as a downloadable spreadsheet
 - **REST API** — 12 documented endpoints, interactive Swagger UI at `/docs`
 
