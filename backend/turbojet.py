@@ -111,6 +111,7 @@ def calc_thrust(
 
     # Combustor state holders (set inside loop, used for TSFC after loop)
     mixt_frac = 0.0
+    phi = 0.0
     T_max_limited = False
 
     while not converged and mdot_iter <= max_mdot_iter and not conv_error:
@@ -232,6 +233,39 @@ def calc_thrust(
             "h_Jkg":   round(gas[s].enthalpy_mass, 1),    # specific enthalpy [J/kg]
         }
         for s in st
+    }
+
+    # ── Emissions & Combustion Metrics (Station 4) ──────────────────────────
+    FAR = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
+
+    if phi < 0.99:
+        burn_state = "Lean Burn"
+    elif phi > 1.01:
+        burn_state = "Rich Burn"
+    else:
+        burn_state = "Balanced (Stoichiometric)"
+
+    emissions_EI = {"NOx": 0.0, "CO": 0.0, "CO2": 0.0}
+    if FAR > 0:
+        gas4 = gas[4]
+        MW_mix = gas4.mean_molecular_weight
+        sp_dict = gas4.mole_fraction_dict()
+        
+        def calc_ei(species_name, mw_species):
+            X_spec = sp_dict.get(species_name, 0.0)
+            return (X_spec * mw_species) / (FAR * MW_mix) * 1000.0
+            
+        ei_no  = calc_ei("NO", 30.01)
+        ei_no2 = calc_ei("NO2", 46.01)
+        emissions_EI["NOx"] = round(ei_no + ei_no2, 2)
+        emissions_EI["CO"]  = round(calc_ei("CO", 28.01), 2)
+        emissions_EI["CO2"] = round(calc_ei("CO2", 44.01), 2)
+
+    stations["4"]["combustion_metrics"] = {
+        "fuel_air_ratio": round(FAR, 4),
+        "equivalence_ratio": round(phi, 3),
+        "burn_state": burn_state,
+        "emissions_EI": emissions_EI,
     }
 
     thrust_kN = F * mdot_noz / 1000.0
