@@ -15,6 +15,7 @@ import numpy as np
 
 from turbojet import calc_thrust, DEFAULT_ENG_PARAM, DEFAULT_ENG_PERF
 from turbofan import interp_altMNPC, get_envelope, ENVELOPE, KEY_OUTPUTS, DF_CF34
+from physics_turbofan import calc_turbofan, DEFAULT_TF_PARAM, DEFAULT_TF_PERF
 
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -68,6 +69,47 @@ class TurbojetSingleRequest(BaseModel):
     alt:          float = Field(35000.0, ge=0,   le=65000,  description="Altitude [ft]")
     M_i:          float = Field(0.8,     ge=0.0, le=0.9,    description="Mach number")
     mdot_guess:   float = Field(20.0,    gt=0,              description="Initial mass-flow guess [kg/s]")
+
+
+class PhysicsTurbofanParam(BaseModel):
+    A1:           float = Field(DEFAULT_TF_PARAM["A1"])
+    A2:           float = Field(DEFAULT_TF_PARAM["A2"])
+    fan_n_stages: int   = Field(DEFAULT_TF_PARAM["fan_n_stages"])
+    hpc_n_stages: int   = Field(DEFAULT_TF_PARAM["hpc_n_stages"])
+    hpt_n_stages: int   = Field(DEFAULT_TF_PARAM["hpt_n_stages"])
+    lpt_n_stages: int   = Field(DEFAULT_TF_PARAM["lpt_n_stages"])
+    A8:           float = Field(DEFAULT_TF_PARAM["A8"])
+    A18:          float = Field(DEFAULT_TF_PARAM["A18"])
+
+
+class PhysicsTurbofanPerf(BaseModel):
+    eta_i:        float = Field(DEFAULT_TF_PERF["eta_i"])
+    FPR:          float = Field(DEFAULT_TF_PERF["FPR"])
+    eta_fan:      float = Field(DEFAULT_TF_PERF["eta_fan"])
+    CPR:          float = Field(DEFAULT_TF_PERF["CPR"])
+    eta_hpc:      float = Field(DEFAULT_TF_PERF["eta_hpc"])
+    eta_b:        float = Field(DEFAULT_TF_PERF["eta_b"])
+    dp_over_p:    float = Field(DEFAULT_TF_PERF["dp_over_p"])
+    max_f:        float = Field(DEFAULT_TF_PERF["max_f"])
+    min_f:        float = Field(DEFAULT_TF_PERF["min_f"])
+    V_nominal:    float = Field(DEFAULT_TF_PERF["V_nominal"])
+    T_max:        float = Field(DEFAULT_TF_PERF["T_max"])
+    eta_hpt:      float = Field(DEFAULT_TF_PERF["eta_hpt"])
+    eta_lpt:      float = Field(DEFAULT_TF_PERF["eta_lpt"])
+    mech_loss_hp: float = Field(DEFAULT_TF_PERF["mech_loss_hp"])
+    mech_loss_lp: float = Field(DEFAULT_TF_PERF["mech_loss_lp"])
+    eta_noz_core: float = Field(DEFAULT_TF_PERF["eta_noz_core"])
+    eta_noz_byp:  float = Field(DEFAULT_TF_PERF["eta_noz_byp"])
+
+
+class PhysicsTurbofanSingleRequest(BaseModel):
+    eng_param:       PhysicsTurbofanParam = Field(default_factory=PhysicsTurbofanParam)
+    eng_perf:        PhysicsTurbofanPerf  = Field(default_factory=PhysicsTurbofanPerf)
+    throttle_pos:    float = Field(1.0,     ge=0.5, le=1.0)
+    alt:             float = Field(35000.0, ge=0,   le=65000)
+    M_i:             float = Field(0.8,     ge=0.0, le=0.9)
+    mdot_core_guess: float = Field(20.0,    gt=0)
+    mdot_byp_guess:  float = Field(100.0,   gt=0)
 
 
 class TurbojetSweepRequest(BaseModel):
@@ -224,8 +266,27 @@ def turbojet_sweep(req: TurbojetSweepRequest):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Turbofan (CF34) endpoints
+# Turbofan (CF34) and Physics Turbofan endpoints
 # ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/api/physics_turbofan/single")
+def physics_turbofan_single(req: PhysicsTurbofanSingleRequest):
+    """
+    Run a single-point physics-based turbofan simulation.
+    """
+    try:
+        result = calc_turbofan(
+            eng_param=req.eng_param.model_dump(),
+            eng_perf=req.eng_perf.model_dump(),
+            throttle_pos=req.throttle_pos,
+            alt=req.alt,
+            M_i=req.M_i,
+            mdot_core_guess=req.mdot_core_guess,
+            mdot_byp_guess=req.mdot_byp_guess,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 @app.get("/api/turbofan/envelope")
 def turbofan_envelope():
