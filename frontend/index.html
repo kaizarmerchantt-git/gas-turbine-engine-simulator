@@ -933,7 +933,7 @@ function TurbofanPanel() {
    ════════════════════════════════════════════════════════════════════════════ */
 const PTF_DEF = {
   alt:35000, mach:0.8, throttle:1.0,
-  A1:1.5, A2:0.32, A8:0.27, A18:0.8, fanStages:1, hpcStages:10, hptStages:2, lptStages:3,
+  A1:1.5, A2:0.32, A8:0.27, BPR:5.0, fanStages:1, hpcStages:10, hptStages:2, lptStages:3,
   etaI:0.98, FPR:1.5, etaFan:0.89, CPR:15.0, etaHpc:0.85,
   etaB:0.99, dpP:0.04, maxF:0.25, minF:0.125, Vnom:45, Tmax:1500,
   etaHpt:0.90, etaLpt:0.92, mechLossHp:0.99, mechLossLp:0.99, etaNozCore:0.98, etaNozByp:0.98,
@@ -949,11 +949,11 @@ function PhysicsTurbofanPanel() {
   const [error,     setError]     = useState(null);
 
   const makeBody = () => ({
-    eng_param: { A1:p.A1, A2:p.A2, fan_n_stages:p.fanStages, hpc_n_stages:p.hpcStages, hpt_n_stages:p.hptStages, lpt_n_stages:p.lptStages, A8:p.A8, A18:p.A18 },
+    eng_param: { A1:p.A1, A2:p.A2, fan_n_stages:p.fanStages, hpc_n_stages:p.hpcStages, hpt_n_stages:p.hptStages, lpt_n_stages:p.lptStages, A8:p.A8, BPR:p.BPR },
     eng_perf:  { eta_i:p.etaI, FPR:p.FPR, eta_fan:p.etaFan, CPR:p.CPR, eta_hpc:p.etaHpc, eta_b:p.etaB, dp_over_p:p.dpP,
                  max_f:p.maxF, min_f:p.minF, V_nominal:p.Vnom, T_max:p.Tmax,
                  eta_hpt:p.etaHpt, eta_lpt:p.etaLpt, mech_loss_hp:p.mechLossHp, mech_loss_lp:p.mechLossLp, eta_noz_core:p.etaNozCore, eta_noz_byp:p.etaNozByp },
-    throttle_pos:p.throttle, alt:p.alt, M_i:p.mach, mdot_core_guess:20, mdot_byp_guess:100,
+    throttle_pos:p.throttle, alt:p.alt, M_i:p.mach, mdot_core_guess:20,
   });
 
   const post = async (url, payload) => {
@@ -1001,7 +1001,7 @@ function PhysicsTurbofanPanel() {
           <div className="card-bd">
             <Slider label="Inlet area A₁"       unit="m²" value={p.A1} min={0.1} max={5.0} step={0.01} onChange={v=>set("A1",v)}/>
             <Slider label="Core face A₂"  unit="m²" value={p.A2} min={0.05} max={2.0} step={0.01} onChange={v=>set("A2",v)}/>
-            <Slider label="Bypass Nozzle A₁₈"    unit="m²" value={p.A18} min={0.1} max={3.0} step={0.01} onChange={v=>set("A18",v)}/>
+            <Slider label="Bypass Ratio (BPR)"    unit="" value={p.BPR} min={0.1} max={15.0} step={0.1} onChange={v=>set("BPR",v)}/>
             <Slider label="Core Nozzle A₈"    unit="m²" value={p.A8} min={0.02} max={2.0} step={0.01} onChange={v=>set("A8",v)}/>
             <div className="row2">
               <Num label="Fan stages" unit="" value={p.fanStages} min={1} max={3} onChange={v=>set("fanStages",v)}/>
@@ -1059,25 +1059,19 @@ function PhysicsTurbofanPanel() {
             )}
             
             <div className="kpi-strip">
-              <KPI label="Total Thrust" value={fmt(result.T_total,2)}        unit="kN"        cls="hi-tj"/>
+              <KPI label="Total Thrust" value={fmt(result.T,2)}        unit="kN"        cls="hi-tj"/>
               <KPI label="Bypass Thrust" value={fmt(result.T_byp,2)}         unit="kN"        />
               <KPI label="Core Thrust" value={fmt(result.T_core,2)}          unit="kN"        />
               <KPI label="Fuel Flow"  value={fmt(result.mdot_fuel*3600,1)} unit="kg/h"      />
               <KPI label="TSFC"       value={fmt(result.TSFC,2)}           unit="kg/(kN·h)" />
               <KPI label="Bypass Ratio" value={fmt(result.BPR,2)}            unit=""          />
+              <KPI label="Req. A₁₈"     value={fmt(result.A18_calc,3)}       unit="m²"        />
             </div>
             
             <div className="card">
-              <div className="card-hd">Station Data (Core)</div>
+              <div className="card-hd">Station Data</div>
               <div className="card-bd" style={{padding:0}}>
-                <StationTable stations={result.stations_core}/>
-              </div>
-            </div>
-            
-            <div className="card">
-              <div className="card-hd">Station Data (Bypass)</div>
-              <div className="card-bd" style={{padding:0}}>
-                <StationTable stations={result.stations_byp}/>
+                <StationTable stations={result.stations}/>
               </div>
             </div>
           </>

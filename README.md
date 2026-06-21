@@ -14,6 +14,7 @@ An interactive, web-based **0D thermodynamic cycle simulator** for gas turbine e
 | Model | Type | Method | Speed |
 |---|---|---|---|
 | **Generic Turbojet** | Single-spool, physics-based | Cantera real-gas thermochemistry + iterative station convergence | 5–40 s / point |
+| **Physics-based Turbofan** | Dual-spool, physics-based | Dual mass-flow convergence loop + Cantera chemistry | 10–60 s / point |
 | **GE CF34-10E Turbofan** | High-bypass, data-driven | Pre-computed pyCycle/OpenMDAO deck, trilinear interpolation | < 50 ms / point |
 
 ### Gas path stations
@@ -227,6 +228,7 @@ With the backend running, interactive docs at http://localhost:8000/docs
 | POST | `/api/turbojet/sweep/csv` | Sweep result as CSV |
 | POST | `/api/turbojet/ts_diagram` | T–s diagram station data |
 | POST | `/api/turbojet/compare` | Side-by-side two-config comparison |
+| POST | `/api/physics_turbofan/single` | Single-point physics turbofan simulation |
 | GET  | `/api/turbofan/envelope` | CF34 deck envelope info |
 | GET  | `/api/turbofan/altitudes` | Available altitudes in deck |
 | POST | `/api/turbofan/single` | Single-point CF34 interpolation |
