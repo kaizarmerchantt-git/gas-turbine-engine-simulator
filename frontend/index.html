@@ -200,14 +200,44 @@ function StationTable({ stations }) {
         {ORDER.filter(id => stations[id]).map(id => {
           const s = stations[id];
           return (
-            <tr key={id}>
-              <td><strong>{id}</strong></td>
-              <td className="lbl">{s.label}</td>
-              <td>{fmt(s.Mach,3)}</td>
-              <td className={s.T_K > 700 ? "hot" : "cool"}>{fmt(s.T_K,0)}</td>
-              <td>{fmt(s.P_atm,3)}</td>
-              <td>{s.s_JkgK != null ? fmt(s.s_JkgK,0) : "—"}</td>
-            </tr>
+            <React.Fragment key={id}>
+              <tr>
+                <td><strong>{id}</strong></td>
+                <td className="lbl">{s.label}</td>
+                <td>{fmt(s.Mach,3)}</td>
+                <td className={s.T_K > 700 ? "hot" : "cool"}>{fmt(s.T_K,0)}</td>
+                <td>{fmt(s.P_atm,3)}</td>
+                <td>{s.s_JkgK != null ? fmt(s.s_JkgK,0) : "—"}</td>
+              </tr>
+              {s.combustion_metrics && (
+                <tr style={{backgroundColor: "rgba(255,255,255,0.03)"}}>
+                  <td colSpan="6" style={{padding: "10px 14px", borderBottom: "1px solid rgba(48,54,61,.5)"}}>
+                    <div style={{display: "flex", flexWrap: "wrap", gap: "20px", fontSize: "11px"}}>
+                      <div className="field">
+                        <label>Combustion State</label>
+                        <span style={{color: "var(--acc1)", fontWeight: "bold"}}>{s.combustion_metrics.burn_state} (Φ = {s.combustion_metrics.equivalence_ratio.toFixed(3)})</span>
+                      </div>
+                      <div className="field">
+                        <label>Fuel-Air Ratio</label>
+                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.fuel_air_ratio.toFixed(4)}</span>
+                      </div>
+                      <div className="field">
+                        <label>EI NOx</label>
+                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.NOx.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                      </div>
+                      <div className="field">
+                        <label>EI CO</label>
+                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                      </div>
+                      <div className="field">
+                        <label>EI CO₂</label>
+                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO2.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
           );
         })}
       </tbody>
