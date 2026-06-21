@@ -4,6 +4,7 @@ Physics-based 0D cycle model for a two-spool turbofan.
 """
 
 from __future__ import annotations
+import numpy as np
 import cantera as ct
 from engine_helper import (
     REACTION_MECHANISM, PHASE_NAME, COMP_AIR, COMP_FUEL,
@@ -26,7 +27,7 @@ DEFAULT_TF_PARAM: dict = {
     "hpt_n_stages": 1,    #     number of HPT stages
     "lpt_n_stages": 3,    #     number of LPT stages
     "A8": 0.15,           # m²  core nozzle throat area
-    "A18": 0.8,           # m²  bypass nozzle throat area
+    "BPR": 5.0,           #     bypass ratio
 }
 
 DEFAULT_TF_PERF: dict = {
@@ -61,7 +62,6 @@ def calc_turbofan(
     alt: float = 0.0,
     M_i: float = 0.0,
     mdot_core_guess: float = 20.0,
-    mdot_byp_guess: float = 100.0,
 ) -> dict:
     """
     Calculate steady-state multi-spool turbofan performance via a dual
@@ -90,15 +90,15 @@ def calc_turbofan(
     mdot_iter   = 0
     max_mdot_iter = 30    # turbofans can take a bit longer to settle
     conv_error  = False
-    
     current_mdot_c = mdot_core_guess
-    current_mdot_b = mdot_byp_guess
+    A18_calc = 0.0
 
     mixt_frac = 0.0
     phi = 0.0
     T_max_limited = False
 
     while not converged and mdot_iter <= max_mdot_iter and not conv_error:
+        current_mdot_b = current_mdot_c * eng_param["BPR"]
         mdot_tot = current_mdot_c + current_mdot_b
 
         # ── Station a → 1 (free-stream to inlet entry) ─────────────────────
@@ -133,12 +133,38 @@ def calc_turbofan(
         # ── Station 13 → 18 (Bypass nozzle) ────────────────────────────────
         p0_13 = get_p(gas[13].P, get_gamma(gas[13]), M[13])
         if p0_13 <= p_amb:
-            choked_b, mdot_noz_b, M[18], F_b_spec = False, current_mdot_b * 0.9, 0.0, 0.0
+            choked_b, mdot_noz_b, M[18], F_b_spec, A18_calc = False, current_mdot_b, 0.0, 0.0, 0.0
         else:
-            choked_b, mdot_noz_b, M[18], F_b_spec = calc_nozzle(
-                gas[13], M[13], eng_perf["eta_noz_byp"],
-                p_amb, eng_param["A18"], V_i, gas[18]
-            )
+            gamma_b = get_gamma(gas[13])
+            R_b = get_R(gas[13])
+            T0_13 = get_T(gas[13].T, gamma_b, M[13])
+            pc_ratio = 1.0 / (
+                1.0 - (1.0 / eng_perf["eta_noz_byp"]) * ((gamma_b - 1.0) / (gamma_b + 1.0))
+            ) ** (gamma_b / (gamma_b - 1.0))
+            
+            if p_amb <= p0_13 / pc_ratio:
+                choked_b = True
+                p_18 = p0_13 / pc_ratio
+                T_18 = T0_13 / ((gamma_b + 1.0) / 2.0)
+                V_18 = np.sqrt(gamma_b * R_b * T_18)
+                rho_18 = p_18 / (R_b * T_18)
+                A18_calc = current_mdot_b / (rho_18 * V_18)
+                F_b_spec = (V_18 - V_i) + (A18_calc / current_mdot_b) * (p_18 - p_amb)
+                M[18] = 1.0
+            else:
+                choked_b = False
+                p_18 = p_amb
+                T_18 = T0_13 - eng_perf["eta_noz_byp"] * T0_13 * (
+                    1.0 - 1.0 / (p0_13 / p_amb) ** ((gamma_b - 1.0) / gamma_b)
+                )
+                V_18 = np.sqrt(2.0 * gas[13].cp * (T0_13 - T_18))
+                rho_18 = p_18 / (R_b * T_18)
+                A18_calc = current_mdot_b / (rho_18 * V_18)
+                F_b_spec = V_18 - V_i
+                M[18] = V_18 / np.sqrt(gamma_b * R_b * T_18)
+            
+            gas[18].TP = T_18, p_18
+            mdot_noz_b = current_mdot_b
 
         # ── CORE STREAM ──
         # ── Station 21 → 3 (HPC) ───────────────────────────────────────────
@@ -217,15 +243,13 @@ def calc_turbofan(
 
         # ── Convergence check ───────────────────────────────────────────────
         err_c = abs(mdot_noz_c - current_mdot_c)
-        err_b = abs(mdot_noz_b - current_mdot_b)
         
-        if err_c < tol and err_b < tol:
+        if err_c < tol:
             converged = True
         else:
             mdot_iter += 1
             alpha = 0.2
             current_mdot_c = (1.0 - alpha) * current_mdot_c + alpha * mdot_noz_c
-            current_mdot_b = (1.0 - alpha) * current_mdot_b + alpha * mdot_noz_b
 
 
     # ── Post-loop performance metrics ───────────────────────────────────────
@@ -299,8 +323,9 @@ def calc_turbofan(
         "TSFC":           round(TSFC * 3600.0 * 1000.0, 2),
         "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5),
         "mdot_core":      round(mdot_noz_c, 2),
-        "mdot_byp":       round(mdot_noz_b, 2),
+        "mdot_byp":       round(current_mdot_b, 2),
         "BPR":            round(BPR, 2),
+        "A18_calc":       round(A18_calc, 4),
         "choked_core":    bool(choked_c),
         "choked_byp":     bool(choked_b),
         "T_max_limited":  T_max_limited,

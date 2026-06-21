@@ -79,8 +79,7 @@ class PhysicsTurbofanParam(BaseModel):
     hpt_n_stages: int   = Field(DEFAULT_TF_PARAM["hpt_n_stages"])
     lpt_n_stages: int   = Field(DEFAULT_TF_PARAM["lpt_n_stages"])
     A8:           float = Field(DEFAULT_TF_PARAM["A8"])
-    A18:          float = Field(DEFAULT_TF_PARAM["A18"])
-
+    BPR:          float = Field(DEFAULT_TF_PARAM["BPR"])
 
 class PhysicsTurbofanPerf(BaseModel):
     eta_i:        float = Field(DEFAULT_TF_PERF["eta_i"])
@@ -109,8 +108,6 @@ class PhysicsTurbofanSingleRequest(BaseModel):
     alt:             float = Field(35000.0, ge=0,   le=65000)
     M_i:             float = Field(0.8,     ge=0.0, le=0.9)
     mdot_core_guess: float = Field(20.0,    gt=0)
-    mdot_byp_guess:  float = Field(100.0,   gt=0)
-
 
 class TurbojetSweepRequest(BaseModel):
     eng_param:    TurbojetEngineParam = Field(default_factory=TurbojetEngineParam)
@@ -282,7 +279,6 @@ def physics_turbofan_single(req: PhysicsTurbofanSingleRequest):
             alt=req.alt,
             M_i=req.M_i,
             mdot_core_guess=req.mdot_core_guess,
-            mdot_byp_guess=req.mdot_byp_guess,
         )
         return result
     except Exception as e:
