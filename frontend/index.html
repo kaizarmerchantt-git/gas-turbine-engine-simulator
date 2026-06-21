@@ -123,6 +123,21 @@
       .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
       .chart-grid { grid-template-columns: 1fr; }
     }
+
+    .bg-turbine {
+      position: fixed;
+      top: 50%;
+      right: -20vh;
+      transform: translateY(-50%);
+      width: 110vh;
+      height: 110vh;
+      opacity: 0.05;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .bg-turbine svg { width: 100%; height: 100%; }
+    .spin-fast { animation: spin 2s linear infinite; transform-origin: 100px 100px; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -1081,6 +1096,46 @@ function PhysicsTurbofanPanel() {
   );
 }
 
+/* ── UI Components ───────────────────────────────────────────────────────── */
+const TurbineBackground = () => (
+  <div className="bg-turbine">
+    <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="grad" cx="50%" cy="50%" r="50%">
+          <stop offset="60%" stopColor="var(--acc1)" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="var(--bg)" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      
+      {/* Outer Casing */}
+      <circle cx="100" cy="100" r="95" fill="none" stroke="var(--acc1)" strokeWidth="4" opacity="0.8"/>
+      <circle cx="100" cy="100" r="90" fill="none" stroke="var(--acc2)" strokeWidth="1" opacity="0.3" />
+      
+      {/* Spinning Blades */}
+      <g className="spin-fast">
+        {Array.from({length: 24}).map((_, i) => (
+          <path key={i}
+                d="M100,80 Q115,50 100,10 A90,90 0 0,1 115,12 Q125,50 107,80" 
+                fill="var(--acc1)" opacity="0.6"
+                transform={`rotate(${i * 15} 100 100)`} />
+        ))}
+      </g>
+      
+      {/* Center Glow */}
+      <circle cx="100" cy="100" r="90" fill="url(#grad)" pointerEvents="none"/>
+
+      {/* Spinner Cone */}
+      <circle cx="100" cy="100" r="20" fill="var(--bg)" stroke="var(--acc1)" strokeWidth="3" />
+      <circle cx="100" cy="100" r="8" fill="var(--acc2)" opacity="0.7"/>
+      
+      {/* Spinner Swirl */}
+      <g className="spin-fast">
+         <path d="M100,100 Q105,90 100,80 Q95,90 100,100" fill="var(--bg)" stroke="var(--acc1)" strokeWidth="1.5"/>
+      </g>
+    </svg>
+  </div>
+);
+
 function App() {
   const [engine, setEngine] = useState("turbojet");
   const [apiOk,  setApiOk]  = useState("checking");
@@ -1093,6 +1148,7 @@ function App() {
 
   return (
     <div className="shell">
+      <TurbineBackground />
       <header>
         <div className="h-logo">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc1)" strokeWidth="2">
