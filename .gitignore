@@ -144,3 +144,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# Local debug files
+backend/debug_turbofan.py
