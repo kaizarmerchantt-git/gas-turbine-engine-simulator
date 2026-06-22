@@ -30,6 +30,14 @@ def _load_deck(path: str) -> pd.DataFrame:
 
 DF_CF34: pd.DataFrame = _load_deck(_DECK_PATH)
 
+# Cache unique lookup lists at module import time to avoid pandas performance bottlenecks
+_ALTS = DF_CF34["alt"].unique()
+_ALT_MN = {alt: DF_CF34[DF_CF34["alt"] == alt]["MN"].unique().tolist() for alt in _ALTS}
+_PCS = sorted(DF_CF34[(DF_CF34["alt"] == DF_CF34["alt"].iloc[0]) & 
+                      (DF_CF34["MN"]  == DF_CF34["MN"].iloc[0])]["PC"].unique().tolist())
+_GROUPS = {name: group.to_numpy() for name, group in DF_CF34.groupby(["alt", "MN"])}
+
+
 # ── Key columns exposed to the API ──────────────────────────────────────────
 KEY_OUTPUTS = [
     "Fn",     # net thrust [lbf]
@@ -128,10 +136,15 @@ def interp_altMNPC(
         df = DF_CF34
 
     # Build altitude→Mach lookup
-    alts   = df["alt"].unique()
-    alt_MN = {alt: df[df["alt"] == alt]["MN"].unique().tolist() for alt in alts}
-    PCs    = sorted(df[(df["alt"] == df["alt"].iloc[0]) & 
-                       (df["MN"]  == df["MN"].iloc[0])]["PC"].unique().tolist())
+    if df is DF_CF34:
+        alts = _ALTS
+        alt_MN = _ALT_MN
+        PCs = _PCS
+    else:
+        alts = df["alt"].unique()
+        alt_MN = {alt: df[df["alt"] == alt]["MN"].unique().tolist() for alt in alts}
+        PCs = sorted(df[(df["alt"] == df["alt"].iloc[0]) & 
+                        (df["MN"]  == df["MN"].iloc[0])]["PC"].unique().tolist())
 
     col_names = df.columns.tolist()
 
@@ -164,9 +177,10 @@ def interp_altMNPC(
     interp_pts = []
     for lh in ["high", "low"]:
         for mh in ["M_high", "M_low"]:
-            arr = df.query(
-                f"alt == {pt[lh]['alt']} and MN == {pt[lh][mh]}"
-            ).to_numpy()
+            if df is DF_CF34:
+                arr = _GROUPS[(pt[lh]["alt"], pt[lh][mh])]
+            else:
+                arr = df[(df["alt"] == pt[lh]["alt"]) & (df["MN"] == pt[lh][mh])].to_numpy()
             interp_pts.append(arr)
 
     # ── Interpolate PC ──────────────────────────────────────────────────────
