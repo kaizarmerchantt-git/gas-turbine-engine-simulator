@@ -263,13 +263,8 @@ def multi_stage_compressor(
             p_0in = p0
             T_0in = T0
 
-        if n_stages > 2:
-            max_delta_t = np.diff(stages_T_out).max()
-        elif n_stages > 1:
-            max_delta_t = max(stages_T_out[1] - stages_T_out[0],
-                              stages_T_out[0] - gas_in.T)
-        else:
-            max_delta_t = stages_T_out[0] - gas_in.T
+        all_temps = np.insert(stages_T_out, 0, gas_in.T)
+        max_delta_t = np.diff(all_temps).max()
 
         if max_delta_t < prev_delta_t and n_iter < max_iter:
             n_iter += 1
