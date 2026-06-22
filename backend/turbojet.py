@@ -132,8 +132,8 @@ def calc_thrust(
             gas[st[1]], eng_perf["eta_i"], M[st[1]], gas[st[2]]
         )
         if conv:
-            for i in range(st.index(2), len(st)):
-                M[st[i]] = M_calc
+            M[st[2]] = M_calc
+            M[st[3]] = M_calc
         else:
             conv_error = True
 
@@ -188,6 +188,7 @@ def calc_thrust(
             gas[i].TPX = gas[st[4]].T, gas[st[4]].P, gas[st[4]].X
 
         # ── Station 4 → 5 (multi-stage turbine) ────────────────────────────
+        M[st[5]] = M[st[4]]
         _, _ = multi_stage_turbine(
             gas[st[4]], compressor_work,
             eng_param["turb_n_stages"], eng_perf["eta_t"],
