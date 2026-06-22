@@ -125,6 +125,7 @@ def calc_thrust(
             M[st[1]] = M_calc
         else:
             conv_error = True
+            continue   # skip remaining stations — inlet state is invalid
 
         # ── Station 1 → 2 (inlet with losses) ──────────────────────────────
         M_calc, conv = iterate_inlet(
@@ -136,6 +137,7 @@ def calc_thrust(
             M[st[3]] = M_calc
         else:
             conv_error = True
+            continue   # skip remaining stations
 
         # ── Station 2 → 3 (multi-stage compressor) ─────────────────────────
         _, conv, compressor_work = multi_stage_compressor(
@@ -145,6 +147,7 @@ def calc_thrust(
         )
         if not conv:
             conv_error = True
+            continue   # skip combustor/turbine/nozzle with bad compressor state
 
         # ── Station 3 → 4 (combustor with TIT limiter) ─────────────────────
         T_loop       = True

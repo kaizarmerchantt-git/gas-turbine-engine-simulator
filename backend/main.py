@@ -7,9 +7,11 @@ from __future__ import annotations
 import traceback
 from typing import Literal, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+import json
 
 import numpy as np
 
@@ -35,6 +37,34 @@ app.add_middleware(
 )
 
 
+def _sanitize(obj):
+    """Recursively replace float nan/inf with None so JSON stays RFC 8259 compliant."""
+    if isinstance(obj, float):
+        if obj != obj or obj == float("inf") or obj == float("-inf"):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
+@app.middleware("http")
+async def sanitize_nan_middleware(request: Request, call_next):
+    """Intercept all responses and replace NaN/Inf with null before sending JSON."""
+    response = await call_next(request)
+    if response.headers.get("content-type", "").startswith("application/json"):
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        try:
+            data = json.loads(body)
+            clean = _sanitize(data)
+            return JSONResponse(content=clean, status_code=response.status_code)
+        except Exception:
+            return response
+    return response
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Pydantic models
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,18 +78,18 @@ class TurbojetEngineParam(BaseModel):
 
 
 class TurbojetEnginePerf(BaseModel):
-    eta_i:      float = Field(DEFAULT_ENG_PERF["eta_i"],      description="Inlet adiabatic efficiency")
-    CPR:        float = Field(DEFAULT_ENG_PERF["CPR"],         description="Compressor pressure ratio")
-    eta_c:      float = Field(DEFAULT_ENG_PERF["eta_c"],       description="Compressor isentropic efficiency")
-    eta_b:      float = Field(DEFAULT_ENG_PERF["eta_b"],       description="Combustor efficiency")
-    dp_over_p:  float = Field(DEFAULT_ENG_PERF["dp_over_p"],  description="Combustor pressure loss fraction")
-    max_f:      float = Field(DEFAULT_ENG_PERF["max_f"],       description="Max fuel fraction (stoich)")
-    min_f:      float = Field(DEFAULT_ENG_PERF["min_f"],       description="Min fuel fraction (stoich)")
-    V_nominal:  float = Field(DEFAULT_ENG_PERF["V_nominal"],  description="Combustor nominal flow velocity [m/s]")
-    T_max:      float = Field(DEFAULT_ENG_PERF["T_max"],       description="Max combustor temperature (TIT limit) [K]")
-    eta_t:      float = Field(DEFAULT_ENG_PERF["eta_t"],       description="Turbine isentropic efficiency")
-    mech_loss:  float = Field(DEFAULT_ENG_PERF["mech_loss"],  description="Mechanical efficiency")
-    eta_noz:    float = Field(DEFAULT_ENG_PERF["eta_noz"],     description="Nozzle adiabatic efficiency")
+    eta_i:      float = Field(DEFAULT_ENG_PERF["eta_i"],      gt=0.0, le=1.0, description="Inlet adiabatic efficiency (0–1]")
+    CPR:        float = Field(DEFAULT_ENG_PERF["CPR"],         gt=1.0,         description="Compressor pressure ratio (>1)")
+    eta_c:      float = Field(DEFAULT_ENG_PERF["eta_c"],       gt=0.0, le=1.0, description="Compressor isentropic efficiency (0–1]")
+    eta_b:      float = Field(DEFAULT_ENG_PERF["eta_b"],       gt=0.0, le=1.0, description="Combustor efficiency (0–1]")
+    dp_over_p:  float = Field(DEFAULT_ENG_PERF["dp_over_p"],  ge=0.0, lt=1.0, description="Combustor pressure loss fraction [0–1)")
+    max_f:      float = Field(DEFAULT_ENG_PERF["max_f"],       gt=0.0, le=1.0, description="Max fuel fraction (stoich)")
+    min_f:      float = Field(DEFAULT_ENG_PERF["min_f"],       ge=0.0, lt=1.0, description="Min fuel fraction (stoich)")
+    V_nominal:  float = Field(DEFAULT_ENG_PERF["V_nominal"],  gt=0.0,         description="Combustor nominal flow velocity [m/s]")
+    T_max:      float = Field(DEFAULT_ENG_PERF["T_max"],       gt=300.0,       description="Max combustor temperature (TIT limit) [K]")
+    eta_t:      float = Field(DEFAULT_ENG_PERF["eta_t"],       gt=0.0, le=1.0, description="Turbine isentropic efficiency (0–1]")
+    mech_loss:  float = Field(DEFAULT_ENG_PERF["mech_loss"],  gt=0.0, le=1.0, description="Mechanical efficiency (0–1]")
+    eta_noz:    float = Field(DEFAULT_ENG_PERF["eta_noz"],     gt=0.0, le=1.0, description="Nozzle adiabatic efficiency (0–1]")
 
 
 class TurbojetSingleRequest(BaseModel):
@@ -82,23 +112,23 @@ class PhysicsTurbofanParam(BaseModel):
     BPR:          float = Field(DEFAULT_TF_PARAM["BPR"])
 
 class PhysicsTurbofanPerf(BaseModel):
-    eta_i:        float = Field(DEFAULT_TF_PERF["eta_i"])
-    FPR:          float = Field(DEFAULT_TF_PERF["FPR"])
-    eta_fan:      float = Field(DEFAULT_TF_PERF["eta_fan"])
-    CPR:          float = Field(DEFAULT_TF_PERF["CPR"])
-    eta_hpc:      float = Field(DEFAULT_TF_PERF["eta_hpc"])
-    eta_b:        float = Field(DEFAULT_TF_PERF["eta_b"])
-    dp_over_p:    float = Field(DEFAULT_TF_PERF["dp_over_p"])
-    max_f:        float = Field(DEFAULT_TF_PERF["max_f"])
-    min_f:        float = Field(DEFAULT_TF_PERF["min_f"])
-    V_nominal:    float = Field(DEFAULT_TF_PERF["V_nominal"])
-    T_max:        float = Field(DEFAULT_TF_PERF["T_max"])
-    eta_hpt:      float = Field(DEFAULT_TF_PERF["eta_hpt"])
-    eta_lpt:      float = Field(DEFAULT_TF_PERF["eta_lpt"])
-    mech_loss_hp: float = Field(DEFAULT_TF_PERF["mech_loss_hp"])
-    mech_loss_lp: float = Field(DEFAULT_TF_PERF["mech_loss_lp"])
-    eta_noz_core: float = Field(DEFAULT_TF_PERF["eta_noz_core"])
-    eta_noz_byp:  float = Field(DEFAULT_TF_PERF["eta_noz_byp"])
+    eta_i:        float = Field(DEFAULT_TF_PERF["eta_i"],        gt=0.0, le=1.0)
+    FPR:          float = Field(DEFAULT_TF_PERF["FPR"],          gt=1.0)
+    eta_fan:      float = Field(DEFAULT_TF_PERF["eta_fan"],      gt=0.0, le=1.0)
+    CPR:          float = Field(DEFAULT_TF_PERF["CPR"],          gt=1.0)
+    eta_hpc:      float = Field(DEFAULT_TF_PERF["eta_hpc"],      gt=0.0, le=1.0)
+    eta_b:        float = Field(DEFAULT_TF_PERF["eta_b"],        gt=0.0, le=1.0)
+    dp_over_p:    float = Field(DEFAULT_TF_PERF["dp_over_p"],    ge=0.0, lt=1.0)
+    max_f:        float = Field(DEFAULT_TF_PERF["max_f"],        gt=0.0, le=1.0)
+    min_f:        float = Field(DEFAULT_TF_PERF["min_f"],        ge=0.0, lt=1.0)
+    V_nominal:    float = Field(DEFAULT_TF_PERF["V_nominal"],    gt=0.0)
+    T_max:        float = Field(DEFAULT_TF_PERF["T_max"],        gt=300.0)
+    eta_hpt:      float = Field(DEFAULT_TF_PERF["eta_hpt"],      gt=0.0, le=1.0)
+    eta_lpt:      float = Field(DEFAULT_TF_PERF["eta_lpt"],      gt=0.0, le=1.0)
+    mech_loss_hp: float = Field(DEFAULT_TF_PERF["mech_loss_hp"], gt=0.0, le=1.0)
+    mech_loss_lp: float = Field(DEFAULT_TF_PERF["mech_loss_lp"], gt=0.0, le=1.0)
+    eta_noz_core: float = Field(DEFAULT_TF_PERF["eta_noz_core"], gt=0.0, le=1.0)
+    eta_noz_byp:  float = Field(DEFAULT_TF_PERF["eta_noz_byp"],  gt=0.0, le=1.0)
 
 
 class PhysicsTurbofanSingleRequest(BaseModel):
