@@ -189,10 +189,13 @@ def calc_thrust(
 
         # ── Station 4 → 5 (multi-stage turbine) ────────────────────────────
         M[st[5]] = M[st[4]]
+        mdot_fuel = (mixt_frac / eng_perf["eta_b"]) * current_mdot
+        mdot_turb = current_mdot + mdot_fuel
+        w_t_spec = (compressor_work * current_mdot) / (mdot_turb * eng_perf["mech_loss"])
         _, _ = multi_stage_turbine(
-            gas[st[4]], compressor_work,
+            gas[st[4]], w_t_spec,
             eng_param["turb_n_stages"], eng_perf["eta_t"],
-            eng_perf["mech_loss"], M[st[4]], M[st[5]], gas[st[5]]
+            1.0, M[st[4]], M[st[5]], gas[st[5]]
         )
 
         # ── Station 5 → 8 (nozzle) ─────────────────────────────────────────
