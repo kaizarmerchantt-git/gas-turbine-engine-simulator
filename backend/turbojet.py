@@ -189,7 +189,9 @@ def calc_thrust(
 
         # ── Station 4 → 5 (multi-stage turbine) ────────────────────────────
         M[st[5]] = M[st[4]]
-        mdot_fuel = (mixt_frac / eng_perf["eta_b"]) * current_mdot
+        # Bug T1-A fix: FAR = Z/(1-Z), not Z. Using Z directly understated fuel flow by ~3-5%.
+        _far_i    = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
+        mdot_fuel = (_far_i / eng_perf["eta_b"]) * current_mdot
         mdot_turb = current_mdot + mdot_fuel
         w_t_spec = (compressor_work * current_mdot) / (mdot_turb * eng_perf["mech_loss"])
         _, _ = multi_stage_turbine(
@@ -212,7 +214,9 @@ def calc_thrust(
             current_mdot = mdot_noz
 
     # ── Post-loop performance metrics ───────────────────────────────────────
-    mdot_fuel = (mixt_frac / eng_perf["eta_b"]) * mdot_noz
+    # Bug T1-A fix: FAR = Z/(1-Z), not Z.
+    _far      = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
+    mdot_fuel = (_far / eng_perf["eta_b"]) * mdot_noz
     TSFC      = (mdot_fuel / mdot_noz) / F if F > 0 else float("nan")
     SAR       = V_i / mdot_fuel if mdot_fuel > 0 else float("nan")
 
