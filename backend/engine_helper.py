@@ -386,6 +386,11 @@ def calc_nozzle(
         T      = T0_in - eta_noz * T0_in * (
             1.0 - 1.0 / (p0_in / p_amb) ** ((gamma - 1.0) / gamma)
         )
+        # Guard: T must be < T0_in for a positive velocity; clamp if numerical drift
+        T    = min(T, T0_in - 1e-6)
+        if T <= 0.0:
+            gas_out.TP = max(T, 1.0), p
+            return False, 0.0, 0.0, 0.0
         V    = np.sqrt(2.0 * gas_in.cp * (T0_in - T))
         rho  = p / (R * T)
         mdot = rho * V * A_star

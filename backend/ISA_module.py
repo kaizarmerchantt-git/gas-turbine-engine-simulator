@@ -30,7 +30,7 @@ rho_SL = 1.225 # [kg/m3]
 a_SL = np.sqrt(gamma * R * T_SL) # speed of sound at sea level [m/s]
 
 # stratosphere
-Hc_b_strato = Hc_t_tropo + 0.01 # [ft]
+Hc_b_strato = Hc_t_tropo        # [ft]  continuous boundary (no gap)
 Hc_t_strato = 65616.8 # [ft]
 T_b_strato = 216.65 # [K]
 p_b_strato = 22632.06 # [Pa]

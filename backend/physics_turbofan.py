@@ -144,7 +144,9 @@ def _calc_turbofan_raw(
             gas["a"], 1.0, M["a"], gas[1]
         )
         if conv: M[1] = M_calc
-        else: conv_error = True
+        else:
+            conv_error = True
+            continue   # inlet state invalid — skip all downstream stations
 
         # ── Station 1 → 2 (inlet to fan face) ──────────────────────────────
         M_calc, conv = iterate_inlet(
@@ -152,7 +154,9 @@ def _calc_turbofan_raw(
             gas[1], eng_perf["eta_i"], M[1], gas[2]
         )
         if conv: M[2] = M_calc
-        else: conv_error = True
+        else:
+            conv_error = True
+            continue   # skip remaining stations
 
         # ── Station 2 → 13 / 21 (Fan) ──────────────────────────────────────
         _, conv, w_fan_spec = multi_stage_compressor(
