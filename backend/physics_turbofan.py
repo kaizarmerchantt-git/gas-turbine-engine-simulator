@@ -15,6 +15,7 @@ from engine_helper import (
 import ISA_module as ISA
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Default engine: Generic High-Bypass Turbofan (similar to CF34)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +57,42 @@ DEFAULT_TF_PERF: dict = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def calc_turbofan(
+    eng_param: dict,
+    eng_perf: dict,
+    throttle_pos: float = 1.0,
+    alt: float = 0.0,
+    M_i: float = 0.0,
+    mdot_core_guess: float = 20.0,
+) -> dict:
+    try:
+        return _calc_turbofan_raw(
+            eng_param, eng_perf, throttle_pos, alt, M_i, mdot_core_guess
+        )
+    except Exception as e:
+        print(f"calc_turbofan failed: {e}")
+        return {
+            "T_core":         0.0,
+            "T_byp":          0.0,
+            "T":              0.0,
+            "mdot_fuel":      0.0,
+            "TSFC":           float("nan"),
+            "SAR":            float("nan"),
+            "mdot_core":      0.0,
+            "mdot_byp":       0.0,
+            "BPR":            eng_param.get("BPR", 0.0) if isinstance(eng_param, dict) else 0.0,
+            "A18_calc":       0.0,
+            "choked_core":    False,
+            "choked_byp":     False,
+            "T_max_limited":  False,
+            "converged":      False,
+            "alt_ft":         alt,
+            "Mach":           M_i,
+            "throttle_pos":   throttle_pos,
+            "stations":       {},
+            "error_msg":      str(e),
+        }
+
+def _calc_turbofan_raw(
     eng_param: dict,
     eng_perf: dict,
     throttle_pos: float = 1.0,
@@ -194,6 +231,8 @@ def calc_turbofan(
             if gas[4].T > eng_perf["T_max"]:
                 T_throttle -= 0.001
                 T_max_limited = True
+                if T_throttle < T_throttle_limit:
+                    T_loop = False
             elif T_throttle < T_throttle_limit:
                 T_loop = False
             else:
@@ -206,9 +245,10 @@ def calc_turbofan(
         mdot_turb = current_mdot_c + (mixt_frac / eng_perf["eta_b"]) * current_mdot_c
         w_hpt_spec = (w_hpc_spec * current_mdot_c) / (mdot_turb * eng_perf["mech_loss_hp"])
         
-        h_avail_hp = gas[4].cp * gas[4].T * 0.5
+        h_avail_hp = gas[4].cp * gas[4].T
         if w_hpt_spec > h_avail_hp:
-            w_hpt_spec = h_avail_hp
+            conv_error = True
+            break
 
         _, _ = multi_stage_turbine(
             gas[4], w_hpt_spec,
@@ -220,9 +260,10 @@ def calc_turbofan(
         # ── Station 41 → 5 (LPT) ───────────────────────────────────────────
         w_lpt_spec = (w_fan_spec * mdot_tot) / (mdot_turb * eng_perf["mech_loss_lp"])
         
-        h_avail_lp = gas[41].cp * gas[41].T * 0.5
+        h_avail_lp = gas[41].cp * gas[41].T
         if w_lpt_spec > h_avail_lp:
-            w_lpt_spec = h_avail_lp
+            conv_error = True
+            break
 
         _, _ = multi_stage_turbine(
             gas[41], w_lpt_spec,
