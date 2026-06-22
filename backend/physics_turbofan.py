@@ -213,36 +213,49 @@ def _calc_turbofan_raw(
         if not conv: conv_error = True
         M[3] = M[21]
 
-        # ── Station 3 → 4 (Combustor with TIT limiter) ─────────────────────
-        T_loop       = True
-        T_throttle   = 1.0
-        T_throttle_limit = 0.5
+        # ── Station 3 → 4 (Combustor with TIT limiter) ──────────────────────
+        # Initial evaluation at full internal throttle (T_throttle = 1.0)
+        _TIT_FLOOR = 0.5  # minimum internal throttle scalar
+        phi = (eng_perf["max_f"] - eng_perf["min_f"]) * throttle_pos + eng_perf["min_f"]
+        gas[4].set_equivalence_ratio(phi=phi, fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mole")
+        mixt_frac = gas[4].mixture_fraction(fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mass")
+        M_calc, conv = iterate_combustor(gas[3], eng_perf["V_nominal"], M[3], eng_perf["dp_over_p"], gas[4])
+        if conv: M[4] = M_calc
+        gas[4].equilibrate("HP")
 
-        while T_loop:
-            phi = (eng_perf["max_f"] - eng_perf["min_f"]) * throttle_pos * T_throttle + eng_perf["min_f"]
+        if gas[4].T > eng_perf["T_max"]:
+            # Bug T1-C fix: bisect on the internal throttle scalar to find the highest
+            # value that keeps TIT ≤ T_max.  Replaces the broken linear-decrement loop
+            # that could exit early while the combustor was still above the limit.
+            T_max_limited = True
+            lo, hi = _TIT_FLOOR, 1.0
+            for _bis in range(25):  # 25 iterations → precision ~1.5e-8 on [0.5, 1.0]
+                mid = 0.5 * (lo + hi)
+                phi_bis = (eng_perf["max_f"] - eng_perf["min_f"]) * throttle_pos * mid + eng_perf["min_f"]
+                gas[4].set_equivalence_ratio(phi=phi_bis, fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mole")
+                iterate_combustor(gas[3], eng_perf["V_nominal"], M[3], eng_perf["dp_over_p"], gas[4])
+                gas[4].equilibrate("HP")
+                if gas[4].T > eng_perf["T_max"]:
+                    hi = mid
+                else:
+                    lo = mid
+                if abs(gas[4].T - eng_perf["T_max"]) < 0.5:  # 0.5 K tolerance
+                    break
+            # Settle on the highest compliant scalar (lo is always the last T ≤ T_max)
+            phi = (eng_perf["max_f"] - eng_perf["min_f"]) * throttle_pos * lo + eng_perf["min_f"]
             gas[4].set_equivalence_ratio(phi=phi, fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mole")
             mixt_frac = gas[4].mixture_fraction(fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mass")
-
             M_calc, conv = iterate_combustor(gas[3], eng_perf["V_nominal"], M[3], eng_perf["dp_over_p"], gas[4])
             if conv: M[4] = M_calc
-
             gas[4].equilibrate("HP")
-
-            if gas[4].T > eng_perf["T_max"]:
-                T_throttle -= 0.001
-                T_max_limited = True
-                if T_throttle < T_throttle_limit:
-                    T_loop = False
-            elif T_throttle < T_throttle_limit:
-                T_loop = False
-            else:
-                T_loop = False
 
         for i in [41, 5, 8]:
             gas[i].TPX = gas[4].T, gas[4].P, gas[4].X
 
-        # ── Station 4 → 41 (HPT) ───────────────────────────────────────────
-        mdot_turb = current_mdot_c + (mixt_frac / eng_perf["eta_b"]) * current_mdot_c
+        # ── Station 4 → 41 (HPT) ──────────────────────────────────────────────
+        # Bug N2 fix: mdot_turb uses correct FAR = Z/(1-Z) for fuel contribution.
+        _far_i    = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
+        mdot_turb = current_mdot_c + (_far_i / eng_perf["eta_b"]) * current_mdot_c
         w_hpt_spec = (w_hpc_spec * current_mdot_c) / (mdot_turb * eng_perf["mech_loss_hp"])
         
         h_avail_hp = gas[4].cp * gas[4].T
@@ -294,7 +307,9 @@ def _calc_turbofan_raw(
 
 
     # ── Post-loop performance metrics ───────────────────────────────────────
-    mdot_fuel = (mixt_frac / eng_perf["eta_b"]) * mdot_noz_c
+    # Bug T1-A fix: FAR = Z/(1-Z), not Z.
+    _far      = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
+    mdot_fuel = (_far / eng_perf["eta_b"]) * mdot_noz_c
     thrust_c_kN = F_c_spec * mdot_noz_c / 1000.0
     thrust_b_kN = F_b_spec * mdot_noz_b / 1000.0
     thrust_total_kN = thrust_c_kN + thrust_b_kN
@@ -361,7 +376,7 @@ def _calc_turbofan_raw(
         "T_byp":          round(thrust_b_kN, 3),
         "T":              round(thrust_total_kN, 3),
         "mdot_fuel":      round(mdot_fuel, 5),
-        "TSFC":           round(TSFC * 3600.0 * 1000.0, 2),
+        "TSFC":           round(TSFC * 3600.0, 2),
         "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5),
         "mdot_core":      round(mdot_noz_c, 2),
         "mdot_byp":       round(current_mdot_b, 2),
