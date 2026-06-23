@@ -36,6 +36,7 @@ _ALT_MN = {alt: DF_CF34[DF_CF34["alt"] == alt]["MN"].unique().tolist() for alt i
 _PCS = sorted(DF_CF34[(DF_CF34["alt"] == DF_CF34["alt"].iloc[0]) & 
                       (DF_CF34["MN"]  == DF_CF34["MN"].iloc[0])]["PC"].unique().tolist())
 _GROUPS = {name: group.to_numpy() for name, group in DF_CF34.groupby(["alt", "MN"])}
+ALTS_LIST = sorted(_ALTS.tolist())
 
 
 # ── Key columns exposed to the API ──────────────────────────────────────────

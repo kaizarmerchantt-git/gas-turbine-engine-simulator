@@ -16,7 +16,7 @@ import json
 import numpy as np
 
 from turbojet import calc_thrust, DEFAULT_ENG_PARAM, DEFAULT_ENG_PERF
-from turbofan import interp_altMNPC, get_envelope, ENVELOPE, KEY_OUTPUTS, DF_CF34
+from turbofan import interp_altMNPC, get_envelope, ENVELOPE, KEY_OUTPUTS, DF_CF34, ALTS_LIST
 from physics_turbofan import calc_turbofan, DEFAULT_TF_PARAM, DEFAULT_TF_PERF
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -391,8 +391,7 @@ def turbofan_sweep(req: TurbofanSweepRequest):
 @app.get("/api/turbofan/altitudes")
 def turbofan_altitudes():
     """Return the list of altitude values present in the CF34 deck."""
-    alts = sorted(DF_CF34["alt"].unique().tolist())
-    return {"altitudes": alts}
+    return {"altitudes": ALTS_LIST}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
