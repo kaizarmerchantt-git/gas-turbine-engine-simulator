@@ -160,14 +160,16 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 
 ## Features
 
-- **Single-point simulation** — thrust, TSFC, SAR, fuel flow, and full station data
-- **T–s diagram** — Brayton cycle from Cantera entropy data
-- **Parameter sweeps** — altitude, Mach, or throttle with live charts
+- **Single-point simulation** — thrust, TSFC, SAR, fuel flow, and full station data across single-spool turbojet, dual-spool turbofan, and CF34 models
+- **Dual-Spool Physics Turbofan** — first-principles 2-spool solver with Fan, HPC, HPT, LPT, and independent core and bypass choked/unchoked nozzles
+- **T–s diagrams** — single-spool Brayton cycle and dual-stream (core + bypass) cycle diagrams with Cantera entropy data
+- **Parameter sweeps** — altitude, Mach, throttle, BPR, CPR, and FPR sweeps with live Chart.js visualizations
+- **Binary bisection TIT limiter** — $O(\log N)$ logarithmic bisection limiter enforcing combustor temperature limits without performance cliffs
 - **Side-by-side comparison** — two engine configurations at the same flight condition
-- **TIT limiter** — automatic fuel cutback if turbine inlet temperature exceeds limit
-- **Emissions tracking** - calculates Emission Index for NOx, CO, and CO2 and classifies combustion state
+- **Emissions tracking** — calculates Emission Index for NOx, CO, and CO2 and classifies combustion state
 - **CSV export** — any sweep as a downloadable spreadsheet
-- **REST API** — 12 documented endpoints, interactive Swagger UI at `/docs`
+- **Automated test suite** — 16 pytest tests covering ISA, compressible flow, turbojet, turbofan, and all API endpoints
+- **REST API** — 16 documented endpoints, interactive Swagger UI at `/docs`
 
 ---
 
@@ -176,14 +178,16 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 ```
 gas-turbine-app/
 ├── backend/
-│   ├── main.py              FastAPI — all 12 API endpoints + Pydantic schemas
-│   ├── turbojet.py          Turbojet model — mass-flow convergence loop
+│   ├── main.py              FastAPI — all 16 API endpoints + Pydantic schemas
+│   ├── turbojet.py          Turbojet model — mass-flow convergence + bisection TIT limiter
+│   ├── physics_turbofan.py  Dual-spool turbofan model — two-spool work balance + dual nozzle solver
 │   ├── turbofan.py          CF34 deck loader + trilinear interpolation
 │   ├── engine_helper.py     Inlet / compressor / combustor / turbine / nozzle functions
 │   ├── ISA_module.py        ICAO ISA atmosphere + airspeed conversions
+│   ├── test_physics.py      Automated test suite (16 comprehensive physics & API tests)
 │   └── requirements.txt
 ├── frontend/
-│   └── index.html           Single-file React app (no build step)
+│   └── index.html           Single-file React app (no build step) with Chart.js & dual-stream T-s
 ├── data/
 │   └── CF34_deck_v4.csv     Pre-computed CF34-10E engine deck (pyCycle)
 ├── notebooks/               Source Jupyter notebooks from the YT series
@@ -211,6 +215,14 @@ start.bat
 # open frontend\index.html in browser
 ```
 
+### Running Tests
+
+Run the physics and API regression test suite:
+
+```bash
+pytest -v backend/test_physics.py
+```
+
 Full instructions in **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.
 
 ---
@@ -222,13 +234,17 @@ With the backend running, interactive docs at http://localhost:8000/docs
 | Method | Endpoint | Description |
 |---|---|---|
 | GET  | `/` | Health check |
-| GET  | `/api/turbojet/defaults` | Default engine parameters |
+| GET  | `/api/turbojet/defaults` | Default turbojet parameters |
 | POST | `/api/turbojet/single` | Single-point turbojet simulation |
-| POST | `/api/turbojet/sweep` | Turbojet parameter sweep |
-| POST | `/api/turbojet/sweep/csv` | Sweep result as CSV |
-| POST | `/api/turbojet/ts_diagram` | T–s diagram station data |
+| POST | `/api/turbojet/sweep` | Turbojet parameter sweep (alt, Mach, throttle) |
+| POST | `/api/turbojet/sweep/csv` | Turbojet sweep result as CSV |
+| POST | `/api/turbojet/ts_diagram` | Turbojet T–s diagram station data |
 | POST | `/api/turbojet/compare` | Side-by-side two-config comparison |
+| GET  | `/api/physics_turbofan/defaults` | Default physics turbofan parameters |
 | POST | `/api/physics_turbofan/single` | Single-point physics turbofan simulation |
+| POST | `/api/physics_turbofan/sweep` | Physics turbofan sweep (alt, Mach, throttle, BPR, CPR, FPR) |
+| POST | `/api/physics_turbofan/sweep/csv` | Physics turbofan sweep result as CSV |
+| POST | `/api/physics_turbofan/ts_diagram` | Physics turbofan dual-stream T–s diagram data |
 | GET  | `/api/turbofan/envelope` | CF34 deck envelope info |
 | GET  | `/api/turbofan/altitudes` | Available altitudes in deck |
 | POST | `/api/turbofan/single` | Single-point CF34 interpolation |

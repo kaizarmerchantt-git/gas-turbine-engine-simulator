@@ -114,10 +114,15 @@ def iterate_inlet(
         T_out = gas_in.T + (
             V_in**2 / (2.0 * gas_in.cp) - V_out_guess**2 / (2.0 * gas_out.cp)
         )
+        if T_out <= 1.0 or T_out > T_0out:
+            return 0.0, False
         p_0out = gas_in.P * (
             1.0 + eta_i * V_in**2 / (2.0 * gas_in.cp * gas_in.T)
         ) ** (gamma_in / (gamma_in - 1.0))
-        p_out = p_0out * (T_out / T_0out) ** (gamma_out / (gamma_out - 1.0))
+        ratio = max(T_out / T_0out, 1e-6)
+        p_out = p_0out * (ratio) ** (gamma_out / (gamma_out - 1.0))
+        if p_out <= 0.0:
+            return 0.0, False
 
         gas_out.TP = T_out, p_out
         gamma_out  = get_gamma(gas_out)
@@ -320,8 +325,12 @@ def multi_stage_turbine(
         gamma  = get_gamma(stage_gas)
         T_i    = stage_gas.T
         T_0out_prime = T_0in - W_per_stage / (stage_gas.cp * eta_t)
+        if T_0out_prime <= 1.0:
+            raise ValueError(f"Required turbine work exceeds entering gas enthalpy (T_0in={T_0in:.1f} K).")
         p_0out       = p_0in * (T_0out_prime / T_0in) ** (gamma / (gamma - 1.0))
         T_0out       = T_0in - eta_t * (T_0in - T_0out_prime)
+        if T_0out <= 1.0:
+            raise ValueError(f"Turbine stage exit temperature fell below physical limits (T_0out={T_0out:.1f} K).")
 
         T = get_Ts(T_0out, gamma, M_out)
         p = get_ps(p_0out, T, T_0out, gamma)

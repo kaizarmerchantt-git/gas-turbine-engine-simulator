@@ -265,30 +265,58 @@ function TsDiagram({ tsData }) {
   const ref  = useRef();
   const pts  = tsData?.points ?? [];
 
-  const chartData = pts.length > 0 ? {
-    datasets: [{
-      label: "Brayton Cycle",
-      data: pts.map(p => ({ x: p.s_JkgK, y: p.T_K })),
+  const hasBypass = pts.some(p => p.stream === "bypass");
+  const corePts   = hasBypass ? pts.filter(p => p.stream !== "bypass") : pts;
+  const bypPts    = hasBypass ? pts.filter(p => p.stream === "bypass") : [];
+  // Connect fan face (station 2) to bypass stations (13 -> 18)
+  const st2       = pts.find(p => p.station === "2");
+  const bypLine   = (hasBypass && st2) ? [st2, ...bypPts] : bypPts;
+
+  const datasets = [];
+  if (corePts.length > 0) {
+    datasets.push({
+      label: hasBypass ? "Core Gas Path" : "Brayton Cycle",
+      data: corePts.map(p => ({ x: p.s_JkgK, y: p.T_K })),
       borderColor: "rgb(88,166,255)",
       backgroundColor: "rgba(88,166,255,.08)",
       fill: false,
       showLine: true,
       tension: 0.15,
       pointRadius: 6,
-      pointBackgroundColor: pts.map(p => (p.station==="4"||p.station==="5") ? "#f78166" : "#58a6ff"),
+      pointBackgroundColor: corePts.map(p => (p.station==="4"||p.station==="41"||p.station==="5") ? "#f78166" : "#58a6ff"),
       pointBorderColor: "#0e1117",
       pointBorderWidth: 1.5,
-    }],
-  } : null;
+    });
+  }
+  if (bypLine.length > 0) {
+    datasets.push({
+      label: "Bypass Stream",
+      data: bypLine.map(p => ({ x: p.s_JkgK, y: p.T_K })),
+      borderColor: "rgb(63,185,80)",
+      backgroundColor: "rgba(63,185,80,.08)",
+      borderDash: [6, 4],
+      fill: false,
+      showLine: true,
+      tension: 0.15,
+      pointRadius: 6,
+      pointBackgroundColor: "#3fb950",
+      pointBorderColor: "#0e1117",
+      pointBorderWidth: 1.5,
+    });
+  }
+
+  const chartData = datasets.length > 0 ? { datasets } : null;
 
   const opts = {
     animation: false, responsive: true,
     plugins: {
-      legend: { display: false },
+      legend: { display: hasBypass, labels: { color: "#8b949e", font: { size: 11 } } },
       tooltip: { callbacks: {
         label: ctx => {
-          const p = pts[ctx.dataIndex];
-          return p ? `[${p.station}] ${p.label}  T=${fmt(p.T_K,0)} K  s=${fmt(p.s_JkgK,0)} J/kg\u00b7K  P=${fmt(p.P_atm,3)} atm` : "";
+          const ds = datasets[ctx.datasetIndex];
+          const pt = ds?.data?.[ctx.dataIndex];
+          const matched = pts.find(p => p.s_JkgK === pt?.x && p.T_K === pt?.y);
+          return matched ? `[${matched.station}] ${matched.label}  T=${fmt(matched.T_K,0)} K  s=${fmt(matched.s_JkgK,0)} J/kg\u00b7K  P=${fmt(matched.P_atm,3)} atm` : "";
         }
       }}
     },
@@ -303,12 +331,12 @@ function TsDiagram({ tsData }) {
 
   return (
     <div className="chart-card" style={{marginTop:16}}>
-      <div className="chart-title">T–s Diagram (Brayton Cycle)</div>
+      <div className="chart-title">T–s Diagram ({hasBypass ? "Dual-Spool Turbofan Cycle" : "Single-Spool Brayton Cycle"})</div>
       <canvas ref={ref} />
       <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:10}}>
         {pts.map(p => (
           <div key={p.station} style={{fontSize:11,color:"var(--muted)"}}>
-            <strong style={{color:(p.station==="4"||p.station==="5")?"#f78166":"var(--acc1)"}}>
+            <strong style={{color: (p.station==="4"||p.station==="41"||p.station==="5") ? "#f78166" : p.stream==="bypass" ? "var(--acc2)" : "var(--acc1)"}}>
               {p.station}
             </strong>: {p.label}
           </div>
@@ -323,21 +351,30 @@ function TsDiagram({ tsData }) {
 function SweepCharts({ sweepData, sweepParam, engineType }) {
   const r1 = useRef(), r2 = useRef(), r3 = useRef();
 
-  const acc  = engineType==="tj" ? "rgb(88,166,255)" : "rgb(63,185,80)";
-  const fill = engineType==="tj" ? "rgba(88,166,255,.1)" : "rgba(63,185,80,.1)";
+  const acc  = engineType==="tj" ? "rgb(88,166,255)" : engineType==="ptf" ? "rgb(163,113,247)" : "rgb(63,185,80)";
+  const fill = engineType==="tj" ? "rgba(88,166,255,.1)" : engineType==="ptf" ? "rgba(163,113,247,.1)" : "rgba(63,185,80,.1)";
   const pts  = sweepData?.points?.filter(p => !p.error) ?? [];
 
   /* x-axis key — must match backend return keys exactly */
   const xKey = sweepParam==="altitude" ? "alt_ft"
              : sweepParam==="mach"     ? "Mach"
+             : sweepParam==="throttle" ? "throttle_pos"
+             : sweepParam==="bpr"      ? "BPR"
+             : sweepParam==="cpr"      ? "CPR"
+             : sweepParam==="fpr"      ? "FPR"
              : engineType==="tj"       ? "throttle_pos" : "PC";
 
   const xLabel = sweepParam==="altitude" ? "Altitude [ft]"
                : sweepParam==="mach"     ? "Mach Number"
+               : sweepParam==="throttle" ? "Throttle Position"
+               : sweepParam==="bpr"      ? "Bypass Ratio (BPR)"
+               : sweepParam==="cpr"      ? "HPC Pressure Ratio (CPR)"
+               : sweepParam==="fpr"      ? "Fan Pressure Ratio (FPR)"
                : engineType==="tj"       ? "Throttle Position" : "Power Code (PC)";
 
-  const tsfc_unit   = engineType==="tj" ? "TSFC [kg/(kN\u00b7h)]" : "TSFC [lbm/(lbf\u00b7h)]";
-  const extra_label = engineType==="tj" ? "SAR [nm/kg]"
+  const tsfc_unit   = engineType==="tf" ? "TSFC [lbm/(lbf\u00b7h)]" : "TSFC [kg/(kN\u00b7h)]";
+  const extra_label = engineType==="tj"  ? "SAR [nm/kg]"
+                    : engineType==="ptf" ? (sweepParam==="bpr" ? "Core Thrust [kN]" : "Bypass Ratio (BPR)")
                     : sweepParam==="altitude" ? "OPR" : "BPR";
 
   /* build {x,y} point arrays — safe when pts is empty */
@@ -346,6 +383,7 @@ function SweepCharts({ sweepData, sweepParam, engineType }) {
   const tsfcPts   = mkPts(p => p["TSFC"] ?? 0);
   const extraPts  = mkPts(p =>
     engineType==="tj"          ? (p["SAR"]  ?? 0)
+    : engineType==="ptf"       ? (sweepParam==="bpr" ? (p["T_core"] ?? 0) : (p["BPR"] ?? 0))
     : sweepParam==="altitude"  ? (p["OPR"]  ?? 0)
     :                            (p["BPR"]  ?? 0)
   );
@@ -940,10 +978,6 @@ function TurbofanPanel() {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   ROOT APP
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ════════════════════════════════════════════════════════════════════════════
    PHYSICS TURBOFAN PANEL
    ════════════════════════════════════════════════════════════════════════════ */
 const PTF_DEF = {
@@ -959,9 +993,26 @@ function PhysicsTurbofanPanel() {
   const [p, setP]       = useState(PTF_DEF);
   const set = (k,v) => setP(prev => ({...prev,[k]:v}));
 
+  const [sw, setSw] = useState({
+    param:"altitude",
+    altStart:0, altEnd:40000,
+    machStart:0, machEnd:0.8,
+    thrStart:0.5, thrEnd:1.0,
+    bprStart:3.0, bprEnd:8.0,
+    cprStart:10.0, cprEnd:25.0,
+    fprStart:1.2, fprEnd:2.0,
+    nSteps:10,
+    fixedAlt:35000, fixedMach:0.8, fixedThrottle:1.0,
+  });
+  const setSW = (k,v) => setSw(prev=>({...prev,[k]:v}));
+
   const [result,    setResult]    = useState(null);
+  const [tsData,    setTsData]    = useState(null);
+  const [sweepData, setSweepData] = useState(null);
   const [loading,   setLoading]   = useState(false);
+  const [tsLoading, setTsLoading] = useState(false);
   const [error,     setError]     = useState(null);
+  const [csvBusy,   setCsvBusy]   = useState(false);
 
   const makeBody = () => ({
     eng_param: { A1:p.A1, A2:p.A2, fan_n_stages:p.fanStages, hpc_n_stages:p.hpcStages, hpt_n_stages:p.hptStages, lpt_n_stages:p.lptStages, A8:p.A8, BPR:p.BPR },
@@ -969,6 +1020,24 @@ function PhysicsTurbofanPanel() {
                  max_f:p.maxF, min_f:p.minF, V_nominal:p.Vnom, T_max:p.Tmax,
                  eta_hpt:p.etaHpt, eta_lpt:p.etaLpt, mech_loss_hp:p.mechLossHp, mech_loss_lp:p.mechLossLp, eta_noz_core:p.etaNozCore, eta_noz_byp:p.etaNozByp },
     throttle_pos:p.throttle, alt:p.alt, M_i:p.mach, mdot_core_guess:20,
+  });
+
+  const makeSweepBody = () => ({
+    eng_param: { A1:p.A1, A2:p.A2, fan_n_stages:p.fanStages, hpc_n_stages:p.hpcStages, hpt_n_stages:p.hptStages, lpt_n_stages:p.lptStages, A8:p.A8, BPR:p.BPR },
+    eng_perf:  { eta_i:p.etaI, FPR:p.FPR, eta_fan:p.etaFan, CPR:p.CPR, eta_hpc:p.etaHpc, eta_b:p.etaB, dp_over_p:p.dpP,
+                 max_f:p.maxF, min_f:p.minF, V_nominal:p.Vnom, T_max:p.Tmax,
+                 eta_hpt:p.etaHpt, eta_lpt:p.etaLpt, mech_loss_hp:p.mechLossHp, mech_loss_lp:p.mechLossLp, eta_noz_core:p.etaNozCore, eta_noz_byp:p.etaNozByp },
+    throttle_pos:p.throttle,
+    sweep_param:sw.param,
+    alt_start:sw.altStart, alt_end:sw.altEnd,
+    mach_start:sw.machStart, mach_end:sw.machEnd,
+    throttle_start:sw.thrStart, throttle_end:sw.thrEnd,
+    bpr_start:sw.bprStart, bpr_end:sw.bprEnd,
+    cpr_start:sw.cprStart, cpr_end:sw.cprEnd,
+    fpr_start:sw.fprStart, fpr_end:sw.fprEnd,
+    n_steps:sw.nSteps,
+    fixed_alt:sw.fixedAlt, fixed_mach:sw.fixedMach, fixed_throttle:sw.fixedThrottle,
+    mdot_core_guess:20,
   });
 
   const post = async (url, payload) => {
@@ -980,15 +1049,37 @@ function PhysicsTurbofanPanel() {
   };
 
   const runSingle = async () => {
-    setLoading(true); setError(null); setResult(null);
+    setLoading(true); setError(null); setResult(null); setTsData(null);
     try {
       const r = await post("/api/physics_turbofan/single", makeBody());
       setResult(r);
+      setTsLoading(true);
+      try { setTsData(await post("/api/physics_turbofan/ts_diagram", makeBody())); } catch(_) {}
+      setTsLoading(false);
     } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
-  const reset = () => { setP(PTF_DEF); setResult(null); setError(null); };
+  const runSweep = async () => {
+    setLoading(true); setError(null); setSweepData(null);
+    try { setSweepData(await post("/api/physics_turbofan/sweep", makeSweepBody())); }
+    catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const doCSV = async () => {
+    setCsvBusy(true);
+    try {
+      const r = await fetch(`${API}/api/physics_turbofan/sweep/csv`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(makeSweepBody()),
+      });
+      if (!r.ok) throw new Error(r.statusText);
+      downloadCSV(await r.text(), `physics_turbofan_sweep_${sw.param}.csv`);
+    } catch(e) { setError(e.message); }
+    setCsvBusy(false);
+  };
+
+  const reset = () => { setP(PTF_DEF); setResult(null); setTsData(null); setSweepData(null); setError(null); };
 
   return (
     <div className="grid">
@@ -997,7 +1088,8 @@ function PhysicsTurbofanPanel() {
           <div className="card-hd">Mode</div>
           <div className="card-bd">
             <div className="mode-tog">
-              <button className={`mode-btn active`}>Single Point</button>
+              <button className={`mode-btn ${mode==="single"?"active":""}`} onClick={()=>setMode("single")}>Single Point</button>
+              <button className={`mode-btn ${mode==="sweep"?"active":""}`}  onClick={()=>setMode("sweep")}>Sweep</button>
             </div>
           </div>
         </div>
@@ -1010,6 +1102,84 @@ function PhysicsTurbofanPanel() {
             <Slider label="Throttle" unit="" value={p.throttle} min={0.5} max={1.0} step={0.01} onChange={v=>set("throttle",v)} dp={2}/>
           </div>
         </div>
+
+        {mode==="sweep" && (
+          <div className="card">
+            <div className="card-hd">Sweep Settings</div>
+            <div className="card-bd">
+              <div className="field">
+                <label>Sweep Parameter</label>
+                <select value={sw.param} onChange={e=>setSW("param",e.target.value)}>
+                  <option value="altitude">Altitude (ft)</option>
+                  <option value="mach">Mach Number</option>
+                  <option value="throttle">Throttle Position</option>
+                  <option value="bpr">Bypass Ratio (BPR)</option>
+                  <option value="cpr">Core PR (CPR)</option>
+                  <option value="fpr">Fan PR (FPR)</option>
+                </select>
+              </div>
+
+              {sw.param==="altitude" && <>
+                <div className="row2">
+                  <Num label="From" unit="ft" value={sw.altStart} min={0} max={50000} step={500} onChange={v=>setSW("altStart",v)}/>
+                  <Num label="To"   unit="ft" value={sw.altEnd}   min={0} max={50000} step={500} onChange={v=>setSW("altEnd",v)}/>
+                </div>
+                <Slider label="Fixed Mach" unit="" value={sw.fixedMach} min={0} max={0.9} step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+                <Slider label="Fixed Throttle" unit="" value={sw.fixedThrottle} min={0.5} max={1.0} step={0.01} onChange={v=>setSW("fixedThrottle",v)} dp={2}/>
+              </>}
+
+              {sw.param==="mach" && <>
+                <div className="row2">
+                  <Num label="From" unit="" value={sw.machStart} min={0} max={0.9} step={0.05} onChange={v=>setSW("machStart",v)} dp={2}/>
+                  <Num label="To"   unit="" value={sw.machEnd}   min={0} max={0.9} step={0.05} onChange={v=>setSW("machEnd",v)} dp={2}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt} min={0} max={50000} step={500} onChange={v=>setSW("fixedAlt",v)} dp={0}/>
+                <Slider label="Fixed Throttle" unit="" value={sw.fixedThrottle} min={0.5} max={1.0} step={0.01} onChange={v=>setSW("fixedThrottle",v)} dp={2}/>
+              </>}
+
+              {sw.param==="throttle" && <>
+                <div className="row2">
+                  <Num label="From" unit="" value={sw.thrStart} min={0.5} max={1.0} step={0.05} onChange={v=>setSW("thrStart",v)} dp={2}/>
+                  <Num label="To"   unit="" value={sw.thrEnd}   min={0.5} max={1.0} step={0.05} onChange={v=>setSW("thrEnd",v)} dp={2}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt}  min={0}   max={50000} step={500}  onChange={v=>setSW("fixedAlt",v)}  dp={0}/>
+                <Slider label="Fixed Mach"     unit=""   value={sw.fixedMach} min={0}   max={0.9}   step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+              </>}
+
+              {sw.param==="bpr" && <>
+                <div className="row2">
+                  <Num label="From BPR" unit="" value={sw.bprStart} min={0.5} max={15.0} step={0.5} onChange={v=>setSW("bprStart",v)} dp={1}/>
+                  <Num label="To BPR"   unit="" value={sw.bprEnd}   min={0.5} max={15.0} step={0.5} onChange={v=>setSW("bprEnd",v)} dp={1}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt}  min={0}   max={50000} step={500}  onChange={v=>setSW("fixedAlt",v)}  dp={0}/>
+                <Slider label="Fixed Mach"     unit=""   value={sw.fixedMach} min={0}   max={0.9}   step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+              </>}
+
+              {sw.param==="cpr" && <>
+                <div className="row2">
+                  <Num label="From CPR" unit="" value={sw.cprStart} min={2.0} max={35.0} step={1.0} onChange={v=>setSW("cprStart",v)} dp={1}/>
+                  <Num label="To CPR"   unit="" value={sw.cprEnd}   min={2.0} max={35.0} step={1.0} onChange={v=>setSW("cprEnd",v)} dp={1}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt}  min={0}   max={50000} step={500}  onChange={v=>setSW("fixedAlt",v)}  dp={0}/>
+                <Slider label="Fixed Mach"     unit=""   value={sw.fixedMach} min={0}   max={0.9}   step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+              </>}
+
+              {sw.param==="fpr" && <>
+                <div className="row2">
+                  <Num label="From FPR" unit="" value={sw.fprStart} min={1.1} max={2.5} step={0.05} onChange={v=>setSW("fprStart",v)} dp={2}/>
+                  <Num label="To FPR"   unit="" value={sw.fprEnd}   min={1.1} max={2.5} step={0.05} onChange={v=>setSW("fprEnd",v)} dp={2}/>
+                </div>
+                <Slider label="Fixed Altitude" unit="ft" value={sw.fixedAlt}  min={0}   max={50000} step={500}  onChange={v=>setSW("fixedAlt",v)}  dp={0}/>
+                <Slider label="Fixed Mach"     unit=""   value={sw.fixedMach} min={0}   max={0.9}   step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+              </>}
+
+              <Num label="Steps  (≤15 rec.)" unit="" value={sw.nSteps} min={3} max={30} onChange={v=>setSW("nSteps",v)}/>
+              <div className="alert a-warn" style={{fontSize:11}}>
+                ⚠ Each point ≈ 10–30 s (Cantera). {sw.nSteps} pts ≈ {Math.round(sw.nSteps*20/60)} min
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="card">
           <div className="card-hd">Engine Geometry</div>
@@ -1045,56 +1215,109 @@ function PhysicsTurbofanPanel() {
             <Slider label="Efficiency η_b"     unit=""   value={p.etaB} min={0.80} max={1.00} step={0.005} onChange={v=>set("etaB",v)}/>
             <Slider label="Pressure loss dp/p" unit=""   value={p.dpP}  min={0.02} max={0.15} step={0.005} onChange={v=>set("dpP",v)}/>
             <Slider label="TIT Limit T_max"    unit="K"  value={p.Tmax} min={900}  max={2000} step={10}    onChange={v=>set("Tmax",v)} dp={0}/>
+            <Slider label="Nominal velocity V" unit="m/s" value={p.Vnom} min={20} max={100}   step={1}     onChange={v=>set("Vnom",v)} dp={0}/>
+            <div className="row2">
+              <Num label="Max fuel φ" unit="" value={p.maxF} min={0.1} max={0.5} step={0.01} onChange={v=>set("maxF",v)} dp={2}/>
+              <Num label="Min fuel φ" unit="" value={p.minF} min={0.05} max={0.3} step={0.01} onChange={v=>set("minF",v)} dp={2}/>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Turbines & Nozzles</div>
+          <div className="card-bd">
+            <Slider label="HPT Eff η_hpt"       unit="" value={p.etaHpt}     min={0.70} max={0.98} step={0.005} onChange={v=>set("etaHpt",v)}/>
+            <Slider label="LPT Eff η_lpt"       unit="" value={p.etaLpt}     min={0.70} max={0.98} step={0.005} onChange={v=>set("etaLpt",v)}/>
+            <Slider label="HP Mech Eff η_m,hp"  unit="" value={p.mechLossHp} min={0.90} max={1.00} step={0.001} onChange={v=>set("mechLossHp",v)}/>
+            <Slider label="LP Mech Eff η_m,lp"  unit="" value={p.mechLossLp} min={0.90} max={1.00} step={0.001} onChange={v=>set("mechLossLp",v)}/>
+            <Slider label="Inlet Eff η_i"       unit="" value={p.etaI}       min={0.80} max={1.00} step={0.005} onChange={v=>set("etaI",v)}/>
+            <Slider label="Core Nozzle η_core"  unit="" value={p.etaNozCore} min={0.80} max={1.00} step={0.005} onChange={v=>set("etaNozCore",v)}/>
+            <Slider label="Bypass Nozzle η_byp" unit="" value={p.etaNozByp}  min={0.80} max={1.00} step={0.005} onChange={v=>set("etaNozByp",v)}/>
           </div>
         </div>
 
         <div className="btn-row">
           <button className="btn btn-tj" style={{flex:3}}
-            onClick={runSingle} disabled={loading}>
-            {loading ? <><span className="spin"/>Computing…</> : "▶  Run Simulation"}
+            onClick={mode==="single" ? runSingle : runSweep} disabled={loading}>
+            {loading
+              ? <><span className="spin"/>Computing…</>
+              : mode==="single" ? "▶  Run Simulation" : `▶  Run Sweep (${sw.nSteps} pts)`}
           </button>
           <button className="btn btn-ghost btn-sm" style={{flex:1}} onClick={reset} disabled={loading}>Reset</button>
         </div>
+
+        {mode==="sweep" && sweepData && (
+          <button className="btn btn-ghost btn-sm" onClick={doCSV} disabled={csvBusy}>
+            {csvBusy ? <><span className="spin"/>Generating…</> : "⬇  Download CSV"}
+          </button>
+        )}
       </div>
 
       <div className="content">
         {error && <div className="alert a-err"><strong>Error:</strong>&nbsp;{error}</div>}
-        
-        {!result && !loading && !error && (
+
+        {!result && !sweepData && !loading && !error && (
           <div className="alert a-info">
-            Physics Turbofan Simulation combines a Cantera-based two-spool mass flow solver.<br/>
-            Configure parameters on the left and click <strong>Run Simulation</strong>.
+            Physics Turbofan Simulation runs a 2-spool thermodynamic solver with Cantera equilibrium.<br/>
+            Configure parameters on the left, then click <strong>Run Simulation</strong> or <strong>Run Sweep</strong>.
           </div>
         )}
 
-        {result && (
+        {loading && (
+          <div className="alert a-warn">
+            <span className="spin" style={{color:"#d29922"}}/>&nbsp;
+            Running Cantera thermochemistry — please wait (10–60 s per point)…
+          </div>
+        )}
+
+        {result && mode==="single" && (
           <>
-            {!result.converged && (
-              <div className="alert a-err">⚠ Mass-flow convergence incomplete — results are approximate.</div>
+            {result.T_max_limited && (
+              <div className="alert a-warn">
+                ⚠ TIT limiter active — throttle was reduced internally to keep T below T_max = {p.Tmax} K
+              </div>
             )}
-            
+            {!result.converged && (
+              <div className="alert a-err">
+                ⚠ Mass-flow convergence incomplete — results are approximate.
+              </div>
+            )}
+
             <div className="kpi-strip">
               <KPI label="Total Thrust" value={fmt(result.T,2)}        unit="kN"        cls="hi-tj"/>
-              <KPI label="Bypass Thrust" value={fmt(result.T_byp,2)}         unit="kN"        />
-              <KPI label="Core Thrust" value={fmt(result.T_core,2)}          unit="kN"        />
-              <KPI label="Fuel Flow"  value={fmt(result.mdot_fuel*3600,1)} unit="kg/h"      />
-              <KPI label="TSFC"       value={fmt(result.TSFC,2)}           unit="kg/(kN&middot;h)" />
-              <KPI label="Bypass Ratio" value={fmt(result.BPR,2)}            unit=""          />
-              <KPI label="Req. A₁₈"     value={fmt(result.A18_calc,3)}       unit="m²"        />
+              <KPI label="Bypass Thrust" value={fmt(result.T_byp,2)}   unit="kN"        />
+              <KPI label="Core Thrust"   value={fmt(result.T_core,2)}  unit="kN"        />
+              <KPI label="Fuel Flow"     value={fmt(result.mdot_fuel*3600,1)} unit="kg/h" />
+              <KPI label="TSFC"          value={fmt(result.TSFC,2)}     unit="kg/(kN&middot;h)" />
+              <KPI label="Bypass Ratio"  value={fmt(result.BPR,2)}      unit=""          />
+              <KPI label="Req. A₁₈"      value={fmt(result.A18_calc,3)} unit="m²"        />
             </div>
-            
+
             <div className="card">
               <div className="card-hd">Station Data</div>
               <div className="card-bd" style={{padding:0}}>
                 <StationTable stations={result.stations}/>
               </div>
             </div>
+
+            {tsLoading && (
+              <div className="alert a-info"><span className="spin"/>&nbsp; Fetching T–s diagram data…</div>
+            )}
+            {tsData && <TsDiagram tsData={tsData}/>}
           </>
+        )}
+
+        {sweepData && mode==="sweep" && (
+          <SweepCharts sweepData={sweepData} sweepParam={sweepData.sweep_param} engineType="ptf"/>
         )}
       </div>
     </div>
   );
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ROOT APP
+   ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── UI Components ───────────────────────────────────────────────────────── */
 const TurbineBackground = () => (
@@ -1136,160 +1359,7 @@ const TurbineBackground = () => (
   </div>
 );
 
-
-/* ════════════════════════════════════════════════════════════════════════════
-   PHYSICS TURBOFAN PANEL
-   ════════════════════════════════════════════════════════════════════════════ */
-const PTF_DEF = {
-  alt:35000, mach:0.8, throttle:1.0,
-  A1:1.5, A2:0.32, A8:0.27, BPR:5.0, fanStages:1, hpcStages:10, hptStages:2, lptStages:3,
-  etaI:0.98, FPR:1.5, etaFan:0.89, CPR:15.0, etaHpc:0.85,
-  etaB:0.99, dpP:0.04, maxF:0.25, minF:0.125, Vnom:45, Tmax:1500,
-  etaHpt:0.90, etaLpt:0.92, mechLossHp:0.99, mechLossLp:0.99, etaNozCore:0.98, etaNozByp:0.98,
-};
-
-function PhysicsTurbofanPanel() {
-  const [mode, setMode] = useState("single");
-  const [p, setP]       = useState(PTF_DEF);
-  const set = (k,v) => setP(prev => ({...prev,[k]:v}));
-
-  const [result,    setResult]    = useState(null);
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState(null);
-
-  const makeBody = () => ({
-    eng_param: { A1:p.A1, A2:p.A2, fan_n_stages:p.fanStages, hpc_n_stages:p.hpcStages, hpt_n_stages:p.hptStages, lpt_n_stages:p.lptStages, A8:p.A8, BPR:p.BPR },
-    eng_perf:  { eta_i:p.etaI, FPR:p.FPR, eta_fan:p.etaFan, CPR:p.CPR, eta_hpc:p.etaHpc, eta_b:p.etaB, dp_over_p:p.dpP,
-                 max_f:p.maxF, min_f:p.minF, V_nominal:p.Vnom, T_max:p.Tmax,
-                 eta_hpt:p.etaHpt, eta_lpt:p.etaLpt, mech_loss_hp:p.mechLossHp, mech_loss_lp:p.mechLossLp, eta_noz_core:p.etaNozCore, eta_noz_byp:p.etaNozByp },
-    throttle_pos:p.throttle, alt:p.alt, M_i:p.mach, mdot_core_guess:20,
-  });
-
-  const post = async (url, payload) => {
-    const r = await fetch(`${API}${url}`, {
-      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
-    });
-    if (!r.ok) { const d = await r.json(); throw new Error(d.detail || r.statusText); }
-    return r.json();
-  };
-
-  const runSingle = async () => {
-    setLoading(true); setError(null); setResult(null);
-    try {
-      const r = await post("/api/physics_turbofan/single", makeBody());
-      setResult(r);
-    } catch(e) { setError(e.message); }
-    setLoading(false);
-  };
-
-  const reset = () => { setP(PTF_DEF); setResult(null); setError(null); };
-
-  return (
-    <div className="grid">
-      <div className="sidebar">
-        <div className="card">
-          <div className="card-hd">Mode</div>
-          <div className="card-bd">
-            <div className="mode-tog">
-              <button className={`mode-btn active`}>Single Point</button>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-hd">Flight Conditions</div>
-          <div className="card-bd">
-            <Slider label="Altitude" unit="ft" value={p.alt} min={0} max={50000} step={500} onChange={v=>set("alt",v)} dp={0}/>
-            <Slider label="Mach" unit="" value={p.mach} min={0} max={0.9} step={0.01} onChange={v=>set("mach",v)} dp={2}/>
-            <Slider label="Throttle" unit="" value={p.throttle} min={0.5} max={1.0} step={0.01} onChange={v=>set("throttle",v)} dp={2}/>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-hd">Engine Geometry</div>
-          <div className="card-bd">
-            <Slider label="Inlet area A₁"       unit="m²" value={p.A1} min={0.1} max={5.0} step={0.01} onChange={v=>set("A1",v)}/>
-            <Slider label="Core face A₂"  unit="m²" value={p.A2} min={0.05} max={2.0} step={0.01} onChange={v=>set("A2",v)}/>
-            <Slider label="Bypass Ratio (BPR)"    unit="" value={p.BPR} min={0.1} max={15.0} step={0.1} onChange={v=>set("BPR",v)}/>
-            <Slider label="Core Nozzle A₈"    unit="m²" value={p.A8} min={0.02} max={2.0} step={0.01} onChange={v=>set("A8",v)}/>
-            <div className="row2">
-              <Num label="Fan stages" unit="" value={p.fanStages} min={1} max={3} onChange={v=>set("fanStages",v)}/>
-              <Num label="HPC stages" unit="" value={p.hpcStages} min={1} max={20} onChange={v=>set("hpcStages",v)}/>
-            </div>
-            <div className="row2">
-              <Num label="HPT stages" unit="" value={p.hptStages} min={1} max={4}  onChange={v=>set("hptStages",v)}/>
-              <Num label="LPT stages" unit="" value={p.lptStages} min={1} max={6}  onChange={v=>set("lptStages",v)}/>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-hd">Compression</div>
-          <div className="card-bd">
-            <Slider label="Fan PR (FPR)" unit=""  value={p.FPR}  min={1.1}    max={2.5}   step={0.05}   onChange={v=>set("FPR",v)}/>
-            <Slider label="Fan Eff η_fan"  unit=""  value={p.etaFan} min={0.70} max={0.98} step={0.005} onChange={v=>set("etaFan",v)}/>
-            <Slider label="Core PR (CPR)" unit=""  value={p.CPR}  min={2}    max={40}   step={0.1}   onChange={v=>set("CPR",v)}/>
-            <Slider label="HPC Eff η_hpc"  unit=""  value={p.etaHpc} min={0.60} max={0.95} step={0.005} onChange={v=>set("etaHpc",v)}/>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-hd">Combustor</div>
-          <div className="card-bd">
-            <Slider label="Efficiency η_b"     unit=""   value={p.etaB} min={0.80} max={1.00} step={0.005} onChange={v=>set("etaB",v)}/>
-            <Slider label="Pressure loss dp/p" unit=""   value={p.dpP}  min={0.02} max={0.15} step={0.005} onChange={v=>set("dpP",v)}/>
-            <Slider label="TIT Limit T_max"    unit="K"  value={p.Tmax} min={900}  max={2000} step={10}    onChange={v=>set("Tmax",v)} dp={0}/>
-          </div>
-        </div>
-
-        <div className="btn-row">
-          <button className="btn btn-tj" style={{flex:3}}
-            onClick={runSingle} disabled={loading}>
-            {loading ? <><span className="spin"/>Computing…</> : "▶  Run Simulation"}
-          </button>
-          <button className="btn btn-ghost btn-sm" style={{flex:1}} onClick={reset} disabled={loading}>Reset</button>
-        </div>
-      </div>
-
-      <div className="content">
-        {error && <div className="alert a-err"><strong>Error:</strong>&nbsp;{error}</div>}
-        
-        {!result && !loading && !error && (
-          <div className="alert a-info">
-            Physics Turbofan Simulation combines a Cantera-based two-spool mass flow solver.<br/>
-            Configure parameters on the left and click <strong>Run Simulation</strong>.
-          </div>
-        )}
-
-        {result && (
-          <>
-            {!result.converged && (
-              <div className="alert a-err">⚠ Mass-flow convergence incomplete — results are approximate.</div>
-            )}
-            
-            <div className="kpi-strip">
-              <KPI label="Total Thrust" value={fmt(result.T,2)}        unit="kN"        cls="hi-tj"/>
-              <KPI label="Bypass Thrust" value={fmt(result.T_byp,2)}         unit="kN"        />
-              <KPI label="Core Thrust" value={fmt(result.T_core,2)}          unit="kN"        />
-              <KPI label="Fuel Flow"  value={fmt(result.mdot_fuel*3600,1)} unit="kg/h"      />
-              <KPI label="TSFC"       value={fmt(result.TSFC,2)}           unit="kg/(kN&middot;h)" />
-              <KPI label="Bypass Ratio" value={fmt(result.BPR,2)}            unit=""          />
-              <KPI label="Req. A₁₈"     value={fmt(result.A18_calc,3)}       unit="m²"        />
-            </div>
-            
-            <div className="card">
-              <div className="card-hd">Station Data</div>
-              <div className="card-bd" style={{padding:0}}>
-                <StationTable stations={result.stations}/>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-\nfunction App() {
+function App() {
   const [engine, setEngine] = useState("turbojet");
   const [apiOk,  setApiOk]  = useState("checking");
 

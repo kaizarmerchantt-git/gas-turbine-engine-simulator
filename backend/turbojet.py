@@ -150,15 +150,60 @@ def calc_thrust(
             continue   # skip combustor/turbine/nozzle with bad compressor state
 
         # ── Station 3 → 4 (combustor with TIT limiter) ─────────────────────
-        T_loop       = True
-        T_throttle   = 1.0
-        T_throttle_limit = 0.5
+        _TIT_FLOOR = 0.5  # minimum internal throttle scalar
+        phi = (
+            (eng_perf["max_f"] - eng_perf["min_f"])
+            * throttle_pos
+            + eng_perf["min_f"]
+        )
+        gas[st[4]].set_equivalence_ratio(
+            phi=phi, fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mole"
+        )
+        mixt_frac = gas[st[4]].mixture_fraction(
+            fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mass"
+        )
 
-        while T_loop:
+        M_calc, conv = iterate_combustor(
+            gas[st[3]], eng_perf["V_nominal"],
+            M[st[3]], eng_perf["dp_over_p"], gas[st[4]]
+        )
+        if conv:
+            M[st[4]] = M_calc
+
+        # Combust at constant H and P
+        gas[st[4]].equilibrate("HP")
+
+        if gas[st[4]].T > eng_perf["T_max"]:
+            T_max_limited = True
+            lo, hi = _TIT_FLOOR, 1.0
+            for _bis in range(25):  # 25 iterations → precision ~1.5e-8 on [0.5, 1.0]
+                mid = 0.5 * (lo + hi)
+                phi_bis = (
+                    (eng_perf["max_f"] - eng_perf["min_f"])
+                    * throttle_pos
+                    * mid
+                    + eng_perf["min_f"]
+                )
+                gas[st[4]].set_equivalence_ratio(
+                    phi=phi_bis, fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mole"
+                )
+                iterate_combustor(
+                    gas[st[3]], eng_perf["V_nominal"],
+                    M[st[3]], eng_perf["dp_over_p"], gas[st[4]]
+                )
+                gas[st[4]].equilibrate("HP")
+                if gas[st[4]].T > eng_perf["T_max"]:
+                    hi = mid
+                else:
+                    lo = mid
+                if abs(gas[st[4]].T - eng_perf["T_max"]) < 0.5:
+                    break
+
+            # Settle on the highest compliant scalar (lo is always the last T ≤ T_max)
             phi = (
                 (eng_perf["max_f"] - eng_perf["min_f"])
                 * throttle_pos
-                * T_throttle
+                * lo
                 + eng_perf["min_f"]
             )
             gas[st[4]].set_equivalence_ratio(
@@ -167,24 +212,13 @@ def calc_thrust(
             mixt_frac = gas[st[4]].mixture_fraction(
                 fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mass"
             )
-
             M_calc, conv = iterate_combustor(
                 gas[st[3]], eng_perf["V_nominal"],
                 M[st[3]], eng_perf["dp_over_p"], gas[st[4]]
             )
             if conv:
                 M[st[4]] = M_calc
-
-            # Combust at constant H and P
             gas[st[4]].equilibrate("HP")
-
-            if gas[st[4]].T > eng_perf["T_max"]:
-                T_throttle -= 0.001
-                T_max_limited = True
-            elif T_throttle < T_throttle_limit:
-                T_loop = False
-            else:
-                T_loop = False
 
         # Propagate burned-gas composition to downstream stations
         for i in st[5:]:
@@ -220,8 +254,8 @@ def calc_thrust(
     # Bug T1-A fix: FAR = Z/(1-Z), not Z.
     _far      = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
     mdot_fuel = (_far / eng_perf["eta_b"]) * mdot_noz
-    TSFC      = (mdot_fuel / mdot_noz) / F if F > 0 else float("nan")
-    SAR       = V_i / mdot_fuel if mdot_fuel > 0 else float("nan")
+    TSFC      = (mdot_fuel / mdot_noz) / F if (F > 0 and mdot_noz > 0) else None
+    SAR       = (V_i / mdot_fuel) if mdot_fuel > 0 else None
 
     # ── Station summary ─────────────────────────────────────────────────────
     station_labels = {
@@ -285,8 +319,8 @@ def calc_thrust(
     return {
         "T":              round(thrust_kN, 3),
         "mdot_fuel":      round(mdot_fuel, 5),
-        "TSFC":           round(TSFC * 3600.0 * 1000.0, 2),   # kg/(kN·h)
-        "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5), # nm/kg
+        "TSFC":           round(TSFC * 3600.0 * 1000.0, 2) if TSFC is not None else None,   # kg/(kN·h)
+        "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5) if SAR is not None else None, # nm/kg
         "mdot_air":       round(mdot_noz, 2),
         "choked":         bool(choked),
         "T_max_limited":  T_max_limited,

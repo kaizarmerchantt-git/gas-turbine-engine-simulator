@@ -37,10 +37,12 @@ app.add_middleware(
 )
 
 
+import math
+
 def _sanitize(obj):
     """Recursively replace float nan/inf with None so JSON stays RFC 8259 compliant."""
     if isinstance(obj, float):
-        if obj != obj or obj == float("inf") or obj == float("-inf"):
+        if math.isnan(obj) or math.isinf(obj):
             return None
         return obj
     if isinstance(obj, dict):
@@ -137,6 +139,37 @@ class PhysicsTurbofanSingleRequest(BaseModel):
     throttle_pos:    float = Field(1.0,     ge=0.5, le=1.0)
     alt:             float = Field(35000.0, ge=0,   le=65000)
     M_i:             float = Field(0.8,     ge=0.0, le=0.9)
+    mdot_core_guess: float = Field(20.0,    gt=0)
+
+class PhysicsTurbofanSweepRequest(BaseModel):
+    eng_param:       PhysicsTurbofanParam = Field(default_factory=PhysicsTurbofanParam)
+    eng_perf:        PhysicsTurbofanPerf  = Field(default_factory=PhysicsTurbofanPerf)
+    throttle_pos:    float = Field(1.0,     ge=0.5, le=1.0)
+    sweep_param:     Literal["altitude", "mach", "throttle", "bpr", "cpr", "fpr"] = "altitude"
+    # Altitude sweep
+    alt_start:       float = Field(0.0,     ge=0, le=65000)
+    alt_end:         float = Field(40000.0, ge=0, le=65000)
+    # Mach sweep
+    mach_start:      float = Field(0.0,  ge=0.0, le=0.9)
+    mach_end:        float = Field(0.8,  ge=0.0, le=0.9)
+    # Throttle sweep
+    throttle_start:  float = Field(0.5, ge=0.5, le=1.0)
+    throttle_end:    float = Field(1.0, ge=0.5, le=1.0)
+    # BPR sweep
+    bpr_start:       float = Field(3.0, ge=0.1, le=15.0)
+    bpr_end:         float = Field(8.0, ge=0.1, le=15.0)
+    # CPR sweep
+    cpr_start:       float = Field(10.0, ge=1.0, le=40.0)
+    cpr_end:         float = Field(25.0, ge=1.0, le=40.0)
+    # FPR sweep
+    fpr_start:       float = Field(1.2, ge=1.05, le=3.0)
+    fpr_end:         float = Field(2.0, ge=1.05, le=3.0)
+    # Sweep resolution
+    n_steps:         int   = Field(10, ge=3, le=40, description="Number of points in sweep")
+    # Fixed values when not sweeping
+    fixed_alt:       float = Field(35000.0, ge=0, le=65000)
+    fixed_mach:      float = Field(0.8,     ge=0.0, le=0.9)
+    fixed_throttle:  float = Field(1.0,     ge=0.5, le=1.0)
     mdot_core_guess: float = Field(20.0,    gt=0)
 
 class TurbojetSweepRequest(BaseModel):
@@ -245,7 +278,7 @@ def turbojet_single(req: TurbojetSingleRequest):
             M_i=req.M_i,
             mdot_guess=req.mdot_guess,
         )
-        return result
+        return _sanitize(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
@@ -289,7 +322,7 @@ def turbojet_sweep(req: TurbojetSweepRequest):
                 "error": f"{type(e).__name__}: {str(e)[:200]}",
             })
 
-    return {"sweep_param": req.sweep_param, "points": results}
+    return _sanitize({"sweep_param": req.sweep_param, "points": results})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -310,9 +343,164 @@ def physics_turbofan_single(req: PhysicsTurbofanSingleRequest):
             M_i=req.M_i,
             mdot_core_guess=req.mdot_core_guess,
         )
-        return result
+        return _sanitize(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+@app.get("/api/physics_turbofan/defaults")
+def physics_turbofan_defaults():
+    """Return default parameters and performance metrics for the physics turbofan."""
+    return {
+        "eng_param": DEFAULT_TF_PARAM,
+        "eng_perf":  DEFAULT_TF_PERF,
+    }
+
+@app.post("/api/physics_turbofan/ts_diagram")
+def physics_turbofan_ts_diagram(req: PhysicsTurbofanSingleRequest):
+    """
+    Run the physics turbofan model and return station T and s values suitable
+    for plotting a T-s diagram for both core and bypass streams.
+    """
+    try:
+        result = calc_turbofan(
+            eng_param=req.eng_param.model_dump(),
+            eng_perf=req.eng_perf.model_dump(),
+            throttle_pos=req.throttle_pos,
+            alt=req.alt,
+            M_i=req.M_i,
+            mdot_core_guess=req.mdot_core_guess,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+    stations = result.get("stations", {})
+    ordered = ["a", "1", "2", "13", "21", "3", "4", "41", "5", "8", "18"]
+    points = []
+    for sid in ordered:
+        if sid in stations:
+            s = stations[sid]
+            stream = "bypass" if sid in ("13", "18") else "core"
+            points.append({
+                "station": sid,
+                "label":   s["label"],
+                "T_K":     s["T_K"],
+                "s_JkgK":  s["s_JkgK"],
+                "P_atm":   s["P_atm"],
+                "h_Jkg":   s.get("h_Jkg", 0.0),
+                "stream":  stream,
+            })
+
+    return _sanitize({
+        "points": points,
+        "performance": {
+            "T":         result.get("T", 0.0),
+            "T_core":    result.get("T_core", 0.0),
+            "T_byp":     result.get("T_byp", 0.0),
+            "TSFC":      result.get("TSFC", 0.0),
+            "mdot_fuel": result.get("mdot_fuel", 0.0),
+            "mdot_core": result.get("mdot_core", 0.0),
+            "mdot_byp":  result.get("mdot_byp", 0.0),
+            "BPR":       result.get("BPR", 0.0),
+            "A18_calc":  result.get("A18_calc", 0.0),
+        },
+        "T_max_limited": result.get("T_max_limited", False),
+        "converged":     result.get("converged", False),
+    })
+
+@app.post("/api/physics_turbofan/sweep")
+def physics_turbofan_sweep(req: PhysicsTurbofanSweepRequest):
+    """
+    Run a multi-point parameter sweep for the physics turbofan model.
+    Warm-starts mdot_core_guess across consecutive steps.
+    """
+    if req.sweep_param == "altitude":
+        sweep_vals = np.linspace(req.alt_start, req.alt_end, req.n_steps).tolist()
+        fixed_args = {"M_i": req.fixed_mach, "throttle_pos": req.fixed_throttle}
+        param_key  = "alt"
+    elif req.sweep_param == "mach":
+        sweep_vals = np.linspace(req.mach_start, req.mach_end, req.n_steps).tolist()
+        fixed_args = {"alt": req.fixed_alt, "throttle_pos": req.fixed_throttle}
+        param_key  = "M_i"
+    elif req.sweep_param == "throttle":
+        sweep_vals = np.linspace(req.throttle_start, req.throttle_end, req.n_steps).tolist()
+        fixed_args = {"alt": req.fixed_alt, "M_i": req.fixed_mach}
+        param_key  = "throttle_pos"
+    elif req.sweep_param == "bpr":
+        sweep_vals = np.linspace(req.bpr_start, req.bpr_end, req.n_steps).tolist()
+        fixed_args = {"alt": req.fixed_alt, "M_i": req.fixed_mach, "throttle_pos": req.fixed_throttle}
+        param_key  = "BPR"
+    elif req.sweep_param == "cpr":
+        sweep_vals = np.linspace(req.cpr_start, req.cpr_end, req.n_steps).tolist()
+        fixed_args = {"alt": req.fixed_alt, "M_i": req.fixed_mach, "throttle_pos": req.fixed_throttle}
+        param_key  = "CPR"
+    elif req.sweep_param == "fpr":
+        sweep_vals = np.linspace(req.fpr_start, req.fpr_end, req.n_steps).tolist()
+        fixed_args = {"alt": req.fixed_alt, "M_i": req.fixed_mach, "throttle_pos": req.fixed_throttle}
+        param_key  = "FPR"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported sweep param: {req.sweep_param}")
+
+    results = []
+    mdot_core_guess = req.mdot_core_guess
+    base_eng_param = req.eng_param.model_dump()
+    base_eng_perf = req.eng_perf.model_dump()
+
+    for val in sweep_vals:
+        curr_param = base_eng_param.copy()
+        curr_perf  = base_eng_perf.copy()
+        curr_call_kwargs = dict(fixed_args)
+
+        if param_key in ("alt", "M_i", "throttle_pos"):
+            curr_call_kwargs[param_key] = val
+        elif param_key == "BPR":
+            curr_param["BPR"] = val
+        elif param_key == "CPR":
+            curr_perf["CPR"] = val
+        elif param_key == "FPR":
+            curr_perf["FPR"] = val
+
+        try:
+            r = calc_turbofan(
+                eng_param=curr_param,
+                eng_perf=curr_perf,
+                mdot_core_guess=mdot_core_guess,
+                **curr_call_kwargs,
+            )
+            if r.get("converged") and r.get("mdot_core", 0) > 0:
+                mdot_core_guess = r["mdot_core"]
+            r[param_key] = val
+            results.append(r)
+        except Exception as e:
+            results.append({
+                param_key: val,
+                "error": str(e)[:200],
+                "alt_ft": curr_call_kwargs.get("alt", req.fixed_alt),
+                "Mach": curr_call_kwargs.get("M_i", req.fixed_mach),
+                "throttle_pos": curr_call_kwargs.get("throttle_pos", req.fixed_throttle),
+            })
+
+    return _sanitize({"sweep_param": req.sweep_param, "points": results})
+
+@app.post("/api/physics_turbofan/sweep/csv")
+def physics_turbofan_sweep_csv(req: PhysicsTurbofanSweepRequest):
+    """Run a physics turbofan sweep and return results as a CSV string."""
+    from fastapi.responses import PlainTextResponse
+    import io, csv as csvmod
+
+    res = physics_turbofan_sweep(req)
+    points = res["points"]
+
+    buf = io.StringIO()
+    if points:
+        fieldnames = []
+        for k in points[0].keys():
+            if k != "stations":
+                fieldnames.append(k)
+        writer = csvmod.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(points)
+
+    return PlainTextResponse(content=buf.getvalue(), media_type="text/csv")
 
 @app.get("/api/turbofan/envelope")
 def turbofan_envelope():

@@ -75,8 +75,8 @@ def calc_turbofan(
             "T_byp":          0.0,
             "T":              0.0,
             "mdot_fuel":      0.0,
-            "TSFC":           float("nan"),
-            "SAR":            float("nan"),
+            "TSFC":           None,
+            "SAR":            None,
             "mdot_core":      0.0,
             "mdot_byp":       0.0,
             "BPR":            eng_param.get("BPR", 0.0) if isinstance(eng_param, dict) else 0.0,
@@ -125,10 +125,17 @@ def _calc_turbofan_raw(
     converged   = False
     tol         = 0.1     # kg/s
     mdot_iter   = 0
-    max_mdot_iter = 30    # turbofans can take a bit longer to settle
+    max_mdot_iter = 40    # robust convergence across all altitudes and power codes
     conv_error  = False
     current_mdot_c = mdot_core_guess
+    current_mdot_b = current_mdot_c * eng_param["BPR"]
     A18_calc = 0.0
+    mdot_noz_c = 0.0
+    mdot_noz_b = 0.0
+    F_c_spec = 0.0
+    F_b_spec = 0.0
+    choked_c = False
+    choked_b = False
 
     mixt_frac = 0.0
     phi = 0.0
@@ -262,8 +269,8 @@ def _calc_turbofan_raw(
         mdot_turb = current_mdot_c + (_far_i / eng_perf["eta_b"]) * current_mdot_c
         w_hpt_spec = (w_hpc_spec * current_mdot_c) / (mdot_turb * eng_perf["mech_loss_hp"])
         
-        h_avail_hp = gas[4].cp * gas[4].T
-        if w_hpt_spec > h_avail_hp:
+        h_avail_hp = gas[4].cp * gas[4].T * eng_perf["eta_hpt"]
+        if w_hpt_spec >= h_avail_hp:
             conv_error = True
             break
 
@@ -277,8 +284,8 @@ def _calc_turbofan_raw(
         # ── Station 41 → 5 (LPT) ───────────────────────────────────────────
         w_lpt_spec = (w_fan_spec * mdot_tot) / (mdot_turb * eng_perf["mech_loss_lp"])
         
-        h_avail_lp = gas[41].cp * gas[41].T
-        if w_lpt_spec > h_avail_lp:
+        h_avail_lp = gas[41].cp * gas[41].T * eng_perf["eta_lpt"]
+        if w_lpt_spec >= h_avail_lp:
             conv_error = True
             break
 
@@ -306,7 +313,7 @@ def _calc_turbofan_raw(
             converged = True
         else:
             mdot_iter += 1
-            alpha = 0.2
+            alpha = 0.3
             current_mdot_c = (1.0 - alpha) * current_mdot_c + alpha * mdot_noz_c
 
 
@@ -320,8 +327,8 @@ def _calc_turbofan_raw(
     
     BPR = mdot_noz_b / mdot_noz_c if mdot_noz_c > 0 else 0.0
 
-    TSFC = (mdot_fuel / thrust_total_kN) if thrust_total_kN > 0 else float("nan")
-    SAR  = V_i / mdot_fuel if mdot_fuel > 0 else float("nan")
+    TSFC = (mdot_fuel / thrust_total_kN) if thrust_total_kN > 0 else None
+    SAR  = (V_i / mdot_fuel) if mdot_fuel > 0 else None
 
     # ── Station summary ─────────────────────────────────────────────────────
     station_labels = {
@@ -380,8 +387,8 @@ def _calc_turbofan_raw(
         "T_byp":          round(thrust_b_kN, 3),
         "T":              round(thrust_total_kN, 3),
         "mdot_fuel":      round(mdot_fuel, 5),
-        "TSFC":           round(TSFC * 3600.0, 2),
-        "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5),
+        "TSFC":           round(TSFC * 3600.0, 2) if TSFC is not None else None,
+        "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5) if SAR is not None else None,
         "mdot_core":      round(mdot_noz_c, 2),
         "mdot_byp":       round(current_mdot_b, 2),
         "BPR":            round(BPR, 2),
@@ -389,7 +396,7 @@ def _calc_turbofan_raw(
         "choked_core":    bool(choked_c),
         "choked_byp":     bool(choked_b),
         "T_max_limited":  T_max_limited,
-        "converged":      converged,
+        "converged":      converged and not conv_error,
         "alt_ft":         alt,
         "Mach":           M_i,
         "throttle_pos":   throttle_pos,
