@@ -18,6 +18,7 @@ import numpy as np
 from turbojet import calc_thrust, DEFAULT_ENG_PARAM, DEFAULT_ENG_PERF
 from turbofan import interp_altMNPC, get_envelope, ENVELOPE, KEY_OUTPUTS, DF_CF34, ALTS_LIST
 from physics_turbofan import calc_turbofan, DEFAULT_TF_PARAM, DEFAULT_TF_PERF
+from off_design import CompressorMap, solve_off_design, run_off_design_sweep
 
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -214,6 +215,50 @@ class TurbofanSweepRequest(BaseModel):
     fixed_pc:     float = Field(1.0,     ge=0.55, le=1.0)
 
 
+class OffDesignSingleRequest(BaseModel):
+    N_rel:         float = Field(1.0,    ge=0.55, le=1.10, description="Relative spool speed N/N_des")
+    alt:           float = Field(35000.0, ge=0,   le=65000, description="Altitude [ft]")
+    mach:          float = Field(0.8,    ge=0.0,  le=0.95,  description="Flight Mach number")
+    cpr_des:       float = Field(8.0,    ge=2.0,  le=35.0,  description="Design compressor pressure ratio")
+    eta_c_des:     float = Field(0.85,   ge=0.60, le=0.98,  description="Design compressor efficiency")
+    mdot_corr_des: float = Field(20.0,   gt=0,    le=200.0, description="Design corrected mass flow [kg/s]")
+    A8:            Optional[float] = Field(None, gt=0, description="Nozzle throat area [m²]. Sized to design if omitted.")
+    eta_i:         float = Field(0.98,   ge=0.70, le=1.0)
+    eta_t:         float = Field(0.88,   ge=0.60, le=0.98)
+    mech_loss:     float = Field(0.99,   ge=0.80, le=1.0)
+    eta_b:         float = Field(0.99,   ge=0.80, le=1.0)
+    dp_over_p:     float = Field(0.04,   ge=0.01, le=0.15)
+    T_max:         float = Field(1500.0, ge=800.0, le=2200.0)
+    eta_noz:       float = Field(0.98,   ge=0.60, le=1.0)
+    throttle_pos:  float = Field(1.0,    ge=0.5,  le=1.0)
+
+
+class OffDesignSweepRequest(BaseModel):
+    sweep_param:   Literal["speed", "altitude", "mach"] = "speed"
+    n_steps:       int   = Field(15, ge=3, le=40)
+    speed_start:   float = Field(0.65, ge=0.55, le=1.10)
+    speed_end:     float = Field(1.05, ge=0.55, le=1.10)
+    fixed_speed:   float = Field(1.00, ge=0.55, le=1.10)
+    alt_start:     float = Field(0.0, ge=0, le=65000)
+    alt_end:       float = Field(40000.0, ge=0, le=65000)
+    fixed_alt:     float = Field(35000.0, ge=0, le=65000)
+    mach_start:    float = Field(0.0, ge=0.0, le=0.95)
+    mach_end:      float = Field(0.85, ge=0.0, le=0.95)
+    fixed_mach:    float = Field(0.80, ge=0.0, le=0.95)
+    cpr_des:       float = Field(8.0, ge=2.0, le=35.0)
+    eta_c_des:     float = Field(0.85, ge=0.60, le=0.98)
+    mdot_corr_des: float = Field(20.0, gt=0, le=200.0)
+    A8:            Optional[float] = Field(None, gt=0)
+    eta_i:         float = Field(0.98, ge=0.70, le=1.0)
+    eta_t:         float = Field(0.88, ge=0.60, le=0.98)
+    mech_loss:     float = Field(0.99, ge=0.80, le=1.0)
+    eta_b:         float = Field(0.99, ge=0.80, le=1.0)
+    dp_over_p:     float = Field(0.04, ge=0.01, le=0.15)
+    T_max:         float = Field(1500.0, ge=800.0, le=2200.0)
+    eta_noz:       float = Field(0.98, ge=0.60, le=1.0)
+    throttle_pos:  float = Field(1.0, ge=0.5, le=1.0)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Health check
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,7 +267,7 @@ class TurbofanSweepRequest(BaseModel):
 def root():
     return {
         "status": "online",
-        "models": ["turbojet", "turbofan_cf34"],
+        "models": ["turbojet", "physics_turbofan", "turbofan_cf34", "off_design"],
         "docs":   "/docs",
     }
 
@@ -766,3 +811,93 @@ def turbofan_sweep_csv(req: TurbofanSweepRequest):
         writer.writerows(rows)
 
     return PlainTextResponse(content=buf.getvalue(), media_type="text/csv")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Off-Design Performance Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/off_design/defaults")
+def off_design_defaults():
+    """Return default inputs and design parameters for off-design simulation."""
+    return {
+        "N_rel": 1.0,
+        "alt": 35000.0,
+        "mach": 0.8,
+        "cpr_des": 8.0,
+        "eta_c_des": 0.85,
+        "mdot_corr_des": 20.0,
+        "eta_i": 0.98,
+        "eta_t": 0.88,
+        "mech_loss": 0.99,
+        "eta_b": 0.99,
+        "dp_over_p": 0.04,
+        "T_max": 1500.0,
+        "eta_noz": 0.98,
+        "throttle_pos": 1.0,
+    }
+
+
+@app.get("/api/off_design/map")
+def off_design_map(
+    cpr_des: float = 8.0,
+    eta_c_des: float = 0.85,
+    mdot_corr_des: float = 20.0,
+):
+    """
+    Returns compressor map curves (speed lines, surge boundary, design point)
+    scaled to the provided design parameters for front-end Chart.js visualization.
+    """
+    try:
+        cmap = CompressorMap(cpr_des=cpr_des, eta_c_des=eta_c_des, mdot_corr_des=mdot_corr_des)
+        return _sanitize(cmap.get_map_curves())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/off_design/single")
+def off_design_single(req: OffDesignSingleRequest):
+    """
+    Run a single-point off-design operating condition solver with fixed geometry (A8).
+    Computes matched operating point, station thermodynamics, and surge margin (%SM).
+    """
+    try:
+        res = solve_off_design(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/off_design/sweep")
+def off_design_sweep(req: OffDesignSweepRequest):
+    """
+    Run an off-design parameter sweep across relative shaft speed N, altitude, or Mach.
+    Returns sweep points, map speed lines, and the engine operating line trajectory.
+    """
+    try:
+        res = run_off_design_sweep(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/off_design/sweep/csv")
+def off_design_sweep_csv(req: OffDesignSweepRequest):
+    """Run an off-design sweep and stream the results as downloadable CSV."""
+    from fastapi.responses import PlainTextResponse
+    import io, csv as csvmod
+
+    try:
+        res = run_off_design_sweep(**req.model_dump())
+        points = res.get("points", [])
+
+        buf = io.StringIO()
+        if points:
+            fieldnames = [k for k in points[0].keys() if k not in ("stations", "emissions")]
+            writer = csvmod.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(points)
+
+        return PlainTextResponse(content=buf.getvalue(), media_type="text/csv")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")

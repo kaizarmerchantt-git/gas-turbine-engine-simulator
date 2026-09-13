@@ -15,6 +15,7 @@ An interactive, web-based **0D thermodynamic cycle simulator** for gas turbine e
 |---|---|---|---|
 | **Generic Turbojet** | Single-spool, physics-based | Cantera real-gas thermochemistry + iterative station convergence | 5–40 s / point |
 | **Physics-based Turbofan** | Dual-spool, physics-based | Dual mass-flow convergence loop + Cantera chemistry | 10–60 s / point |
+| **Off-Design Component Matching** | Scalable axial map, 1D matching | Pure Python Brent root matching + fixed throat A₈ + Surge Margin | < 0.5 s / point |
 | **GE CF34-10E Turbofan** | High-bypass, data-driven | Pre-computed pyCycle/OpenMDAO deck, trilinear interpolation | < 50 ms / point |
 
 ### Gas path stations
@@ -132,9 +133,33 @@ For any query point (Hp, MN, PC):
 
 This is a standard trilinear interpolation — three sequential 1D linear interpolations — giving a complete set of engine parameters in under 50 ms.
 
+### `off_design.py` — Off-Design Component Matching & Compressor Map (Extension 1)
+
+Solves true off-design throttled engine performance using scalable component maps and 1D aerodynamic matching:
+
+1. **Compressor Map Parameterization ($\beta$-lines)**:
+   - Axial compressor performance curves digitized across relative speeds $N_{\text{rel}} \in [0.60, 0.70, 0.80, 0.90, 1.00, 1.05]$.
+   - Unambiguous $\beta$-coordinate transformation ($\beta \in [0, 1]$, where $\beta=0$ is choke and $\beta=1$ is surge boundary).
+   - Pressure ratio curves modeled with cubic S-curves; isentropic efficiency parameterized via parabolic peak profiles.
+   - Dynamic scaling factors to user design targets: $(CPR_{\text{des}}, \eta_{c,\text{des}}, \dot{m}_{\text{corr,des}})$.
+
+2. **Zero-Dependency Brent Root Finder**:
+   - Pure Python and NumPy Brent root finder (`brent_root()`) with sign-change bracket discovery and bisection fallback.
+   - Requires no SciPy dependency, enabling lightweight deployment across any Python environment.
+
+3. **1D Component Matching Equations**:
+   - **Shaft Power Balance**: Turbine work output matches compressor work demand: $W_c = W_t \cdot \eta_m$.
+   - **Mass Continuity**: Mass flow is conserved through the core gas path: $\dot{m}_8 = \dot{m}_2 + \dot{m}_f$.
+   - **Fixed Physical Throat Area**: Fixed exhaust nozzle area $A_8$ enforces that the cycle throat area calculated from gas thermodynamics must match physical hardware: $A_{8,\text{calc}}(\beta) = A_8$ (residual $< 0.1\%$).
+
+4. **Dynamic Surge Margin**:
+   - Calculates Surge Margin ($\%SM$) relative to the instantaneous operating line:
+     $$\%SM = \left( \frac{PR_{\text{surge}} / \dot{m}_{\text{corr,surge}}}{PR_{\text{op}} / \dot{m}_{\text{corr,op}}} - 1 \right) \times 100\%$$
+   - Color-coded safety status: Stable ($> 15\%$), Marginal ($10\% - 15\%$), or Critical Surge ($< 10\%$).
+
 ### `main.py` — FastAPI backend
 
-Defines Pydantic request/response schemas with range validation for all inputs. The 12 endpoints cover single-point simulation, parameter sweeps, T–s diagram data, side-by-side comparison, and CSV export for both engine models. CORS is open (`*`) for local development.
+Defines Pydantic request/response schemas with range validation for all inputs. The 26 endpoints cover single-point simulation, parameter sweeps, T–s diagram data, side-by-side comparison, off-design map and operating lines, and CSV export for all engine models. CORS is open (`*`) for local development.
 
 Sweep endpoints chain single-point calls sequentially, carrying the last converged mass flow forward as the initial guess for the next point — this warm-starting cuts convergence iterations on sweeps significantly.
 
@@ -162,14 +187,16 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 
 - **Single-point simulation** — thrust, TSFC, SAR, fuel flow, and full station data across single-spool turbojet, dual-spool turbofan, and CF34 models
 - **Dual-Spool Physics Turbofan** — first-principles 2-spool solver with Fan, HPC, HPT, LPT, and independent core and bypass choked/unchoked nozzles
+- **Off-Design Performance & Component Matching (Extension 1)** — 1D matching solver with shaft power balance ($W_c = W_t \cdot \eta_m$), mass conservation, fixed throat geometry ($A_8$), and pure Python/NumPy Brent root finding
+- **Interactive Compressor Performance Maps** — scalable multi-speed axial compressor maps with $\beta$-coordinate parameterization, dynamic Surge Margin ($\%SM$) computation, and engine operating line tracing
 - **T–s diagrams** — single-spool Brayton cycle and dual-stream (core + bypass) cycle diagrams with Cantera entropy data
-- **Parameter sweeps** — altitude, Mach, throttle, BPR, CPR, and FPR sweeps with live Chart.js visualizations
+- **Parameter sweeps** — shaft speed ($N/N_{\text{des}}$), altitude, Mach, throttle, BPR, CPR, and FPR sweeps with live Chart.js visualizations
 - **Binary bisection TIT limiter** — $O(\log N)$ logarithmic bisection limiter enforcing combustor temperature limits without performance cliffs
 - **Side-by-side comparison** — two engine configurations at the same flight condition
 - **Emissions tracking** — calculates Emission Index for NOx, CO, and CO2 and classifies combustion state
 - **CSV export** — any sweep as a downloadable spreadsheet
-- **Automated test suite** — 16 pytest tests covering ISA, compressible flow, turbojet, turbofan, and all API endpoints
-- **REST API** — 16 documented endpoints, interactive Swagger UI at `/docs`
+- **Automated test suite** — 26 pytest tests covering ISA, compressible flow, turbojet, turbofan, off-design matching, compressor maps, and all 26 API endpoints
+- **REST API** — 26 documented endpoints, interactive Swagger UI at `/docs`
 
 ---
 
@@ -178,16 +205,18 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 ```
 gas-turbine-app/
 ├── backend/
-│   ├── main.py              FastAPI — all 16 API endpoints + Pydantic schemas
+│   ├── main.py              FastAPI — all 26 API endpoints + Pydantic schemas
+│   ├── off_design.py        Off-design matching solver, compressor maps & surge margin
 │   ├── turbojet.py          Turbojet model — mass-flow convergence + bisection TIT limiter
 │   ├── physics_turbofan.py  Dual-spool turbofan model — two-spool work balance + dual nozzle solver
 │   ├── turbofan.py          CF34 deck loader + trilinear interpolation
 │   ├── engine_helper.py     Inlet / compressor / combustor / turbine / nozzle functions
 │   ├── ISA_module.py        ICAO ISA atmosphere + airspeed conversions
-│   ├── test_physics.py      Automated test suite (16 comprehensive physics & API tests)
+│   ├── test_off_design.py   Automated test suite for off-design matching & maps (10 tests)
+│   ├── test_physics.py      Automated test suite for baseline models & endpoints (16 tests)
 │   └── requirements.txt
 ├── frontend/
-│   └── index.html           Single-file React app (no build step) with Chart.js & dual-stream T-s
+│   └── index.html           Single-file React app (no build step) with Chart.js, T-s diagrams & Compressor Maps
 ├── data/
 │   └── CF34_deck_v4.csv     Pre-computed CF34-10E engine deck (pyCycle)
 ├── notebooks/               Source Jupyter notebooks from the YT series
@@ -217,10 +246,10 @@ start.bat
 
 ### Running Tests
 
-Run the physics and API regression test suite:
+Run the full automated test suite:
 
 ```bash
-pytest -v backend/test_physics.py
+pytest -v backend/test_physics.py backend/test_off_design.py
 ```
 
 Full instructions in **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.
@@ -250,6 +279,11 @@ With the backend running, interactive docs at http://localhost:8000/docs
 | POST | `/api/turbofan/single` | Single-point CF34 interpolation |
 | POST | `/api/turbofan/sweep` | CF34 parameter sweep |
 | POST | `/api/turbofan/sweep/csv` | CF34 sweep result as CSV |
+| GET  | `/api/off_design/defaults` | Default off-design simulation inputs |
+| GET  | `/api/off_design/map` | Scaled compressor map curves (speed lines & surge boundary) |
+| POST | `/api/off_design/single` | 1D matched off-design cycle solver with Surge Margin |
+| POST | `/api/off_design/sweep` | Off-design parameter sweep & operating line construction |
+| POST | `/api/off_design/sweep/csv` | Off-design operating sweep result as CSV |
 
 ---
 
@@ -285,9 +319,10 @@ Appropriate for:
 - Preliminary cycle trade studies (CPR, TIT, efficiency budgets)
 - Understanding Brayton cycle physics before geometry is defined
 - Estimating thrust and fuel burn across the flight envelope
+- Steady-state off-design component matching and compressor surge margin estimation (Extension 1)
 - Teaching and learning cycle thermodynamics
 
 Not appropriate for:
-- Detailed component design (requires 1D mean-line or higher fidelity)
-- Off-design or transient simulation
+- Detailed 3D aerodynamic blade design (requires CFD / mean-line solvers)
+- Transient dynamic control simulation (requires shaft inertia and spool acceleration models)
 - Production engine certification or regulatory compliance

@@ -39,6 +39,7 @@
     .eng-tab:hover { color: var(--text); border-color: var(--border); }
     .eng-tab.tj { background: rgba(88,166,255,.15); color: var(--acc1); border-color: var(--acc1); }
     .eng-tab.tf { background: rgba(63,185,80,.15);  color: var(--acc2); border-color: var(--acc2); }
+    .eng-tab.od { background: rgba(227,179,65,.15); color: #e3b341; border-color: #e3b341; }
 
     .grid { display: grid; grid-template-columns: 330px 1fr; flex: 1; min-height: 0; }
     .sidebar { border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -63,8 +64,10 @@
     .btn { padding: 8px 16px; border-radius: 7px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
     .btn-tj { background: var(--acc1); color: #000; }
     .btn-tf { background: var(--acc2); color: #000; }
+    .btn-od { background: #e3b341; color: #000; }
     .btn-tj:hover { filter: brightness(1.1); }
     .btn-tf:hover { filter: brightness(1.1); }
+    .btn-od:hover { filter: brightness(1.1); }
     .btn:disabled { opacity: .4; cursor: not-allowed; filter: none; }
     .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
     .btn-ghost:hover { border-color: var(--acc1); color: var(--acc1); }
@@ -84,6 +87,8 @@
     .kpi.hi-tj .kpi-val { color: var(--acc1); }
     .kpi.hi-tf { border-color: var(--acc2); }
     .kpi.hi-tf .kpi-val { color: var(--acc2); }
+    .kpi.hi-od { border-color: #e3b341; }
+    .kpi.hi-od .kpi-val { color: #e3b341; }
 
     .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 13px; }
@@ -432,6 +437,197 @@ function SweepCharts({ sweepData, sweepParam, engineType }) {
           {errPts.map((p,i) => (
             <div key={i} className="err-item">
               {sweepParam}: {fmt(p[xKey]??p[sweepParam]??"?",3)} — {p.error}
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   OFF-DESIGN CHARTS (EXTENSION 1)
+   ════════════════════════════════════════════════════════════════════════════ */
+function CompressorMapChart({ mapData, operatingPoint, operatingLine }) {
+  const chartRef = useRef(null);
+
+  const speedColors = [
+    "rgba(88, 166, 255, 0.45)",  // 60%
+    "rgba(79, 195, 247, 0.55)",  // 70%
+    "rgba(38, 198, 218, 0.70)",  // 80%
+    "rgba(77, 208, 225, 0.85)",  // 90%
+    "rgba(88, 166, 255, 1.00)",  // 100%
+    "rgba(186, 104, 200, 1.00)"  // 105%
+  ];
+
+  const datasets = [];
+
+  if (mapData?.speed_lines) {
+    mapData.speed_lines.forEach((sl, idx) => {
+      const color = speedColors[idx % speedColors.length];
+      datasets.push({
+        label: `N = ${Math.round(sl.N_rel * 100)}%`,
+        data: sl.points.map(pt => ({ x: pt.mdot_corr, y: pt.PR })),
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: sl.N_rel === 1.0 ? 2.5 : 1.5,
+        tension: 0.25,
+        pointRadius: 2,
+        showLine: true,
+        fill: false,
+      });
+    });
+  }
+
+  if (mapData?.surge_line?.length) {
+    datasets.push({
+      label: "Surge Boundary",
+      data: mapData.surge_line.map(pt => ({ x: pt.mdot_corr, y: pt.PR })),
+      borderColor: "#f78166",
+      backgroundColor: "#f78166",
+      borderWidth: 2,
+      borderDash: [6, 4],
+      tension: 0.25,
+      pointRadius: 3,
+      showLine: true,
+      fill: false,
+    });
+  }
+
+  if (operatingLine?.length) {
+    datasets.push({
+      label: "Operating Line",
+      data: operatingLine.map(pt => ({ x: pt.x ?? pt.mdot_corr, y: pt.y ?? pt.CPR })),
+      borderColor: "#3fb950",
+      backgroundColor: "#3fb950",
+      borderWidth: 2.5,
+      tension: 0.2,
+      pointRadius: 3,
+      showLine: true,
+      fill: false,
+    });
+  }
+
+  if (operatingPoint) {
+    const smVal = operatingPoint.Surge_Margin_pct ?? operatingPoint.surge_margin_pct;
+    const smText = smVal != null ? `${smVal.toFixed(1)}%` : "—";
+    datasets.push({
+      label: `Operating Point (SM: ${smText})`,
+      data: [{ x: operatingPoint.mdot_corr, y: operatingPoint.CPR }],
+      borderColor: "#ffffff",
+      backgroundColor: "#e3b341",
+      borderWidth: 2,
+      pointRadius: 7,
+      pointHoverRadius: 9,
+      showLine: false,
+    });
+  }
+
+  const chartOpts = {
+    animation: false,
+    responsive: true,
+    plugins: {
+      legend: {
+        display: true,
+        labels: { color: "#8b949e", boxWidth: 12, font: { size: 11 } }
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: (${Number(ctx.parsed.x).toFixed(2)} kg/s, CPR: ${Number(ctx.parsed.y).toFixed(2)})`
+        }
+      }
+    },
+    scales: {
+      x: {
+        type: "linear",
+        ticks: { color: "#8b949e", maxTicksLimit: 8 },
+        grid: { color: "rgba(48,54,61,.6)" },
+        title: { display: true, text: "Corrected Mass Flow ṁ_corr [kg/s]", color: "#8b949e" }
+      },
+      y: {
+        type: "linear",
+        ticks: { color: "#8b949e" },
+        grid: { color: "rgba(48,54,61,.6)" },
+        title: { display: true, text: "Compressor Pressure Ratio (CPR)", color: "#8b949e" }
+      }
+    }
+  };
+
+  useChart(chartRef, "line", datasets.length ? { datasets } : null, chartOpts);
+
+  const sm = operatingPoint?.Surge_Margin_pct ?? operatingPoint?.surge_margin_pct;
+
+  return (
+    <div className="chart-card">
+      <div className="chart-title" style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+        <span>Compressor Performance Map &amp; Operating Line</span>
+        {sm != null && (
+          <span className="badge" style={{
+            background: sm < 10 ? "rgba(247,129,102,0.2)" : sm < 15 ? "rgba(210,153,34,0.2)" : "rgba(63,185,80,0.2)",
+            color: sm < 10 ? "#f78166" : sm < 15 ? "#d29922" : "#3fb950"
+          }}>
+            Surge Margin: {sm.toFixed(1)}% {sm < 10 ? "CRITICAL" : sm < 15 ? "MARGINAL" : "STABLE"}
+          </span>
+        )}
+      </div>
+      <canvas ref={chartRef} style={{maxHeight: 380}} />
+    </div>
+  );
+}
+
+function OffDesignSweepCharts({ sweepData, sweepParam }) {
+  const r1 = useRef(), r2 = useRef(), r3 = useRef();
+
+  const pts = sweepData?.points?.filter(p => !p.error) ?? [];
+
+  const xLabel = sweepParam === "speed" ? "Relative Shaft Speed N / N_des"
+               : sweepParam === "altitude" ? "Altitude [ft]"
+               : "Flight Mach Number";
+
+  const thrustPts = pts.map(p => ({ x: p.sweep_val ?? p.N_rel, y: p.Thrust_kN ?? 0 }));
+  const tsfcPts   = pts.map(p => ({ x: p.sweep_val ?? p.N_rel, y: p.TSFC ?? 0 }));
+  const smPts     = pts.map(p => ({ x: p.sweep_val ?? p.N_rel, y: p.Surge_Margin_pct ?? 0 }));
+
+  const mkDS = (label, data, color, fillBg) => ({
+    label, data, borderColor: color, backgroundColor: fillBg,
+    fill: true, tension: 0.3, pointRadius: 3, showLine: true,
+  });
+
+  const mkOpts = (xTitle, yTitle) => ({
+    animation: false, responsive: true,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${Number(ctx.parsed.y).toFixed(3)}` } } },
+    scales: {
+      x: { type: "linear", ticks: { color: "#8b949e", maxTicksLimit: 8 }, grid: { color: "rgba(48,54,61,.6)" }, title: { display: true, text: xTitle, color: "#8b949e" } },
+      y: { ticks: { color: "#8b949e" }, grid: { color: "rgba(48,54,61,.6)" }, title: { display: true, text: yTitle, color: "#8b949e" } },
+    },
+  });
+
+  useChart(r1, "line", pts.length ? { datasets: [mkDS("Thrust", thrustPts, "#e3b341", "rgba(227,179,65,0.1)")] } : null, mkOpts(xLabel, "Net Thrust [kN]"));
+  useChart(r2, "line", pts.length ? { datasets: [mkDS("TSFC", tsfcPts, "#f8825a", "rgba(248,130,90,0.1)")] } : null, mkOpts(xLabel, "TSFC [kg/(kN·h)]"));
+  useChart(r3, "line", pts.length ? { datasets: [mkDS("Surge Margin", smPts, "#3fb950", "rgba(63,185,80,0.1)")] } : null, mkOpts(xLabel, "Surge Margin [%SM]"));
+
+  const errPts = sweepData?.points?.filter(p => p.error) ?? [];
+  if (!pts.length && !errPts.length) return null;
+
+  return (
+    <div>
+      {pts.length > 0 && (
+        <>
+          <div className="chart-grid">
+            <div className="chart-card"><div className="chart-title">Net Thrust vs {xLabel}</div><canvas ref={r1} /></div>
+            <div className="chart-card"><div className="chart-title">TSFC vs {xLabel}</div><canvas ref={r2} /></div>
+          </div>
+          <div style={{marginTop: 14}}>
+            <div className="chart-card"><div className="chart-title">Surge Margin (%SM) vs {xLabel}</div><canvas ref={r3} /></div>
+          </div>
+        </>
+      )}
+      {errPts.length > 0 && (
+        <details className="err-list">
+          <summary>⚠ {errPts.length} sweep point{errPts.length > 1 ? "s" : ""} failed to converge</summary>
+          {errPts.map((p, i) => (
+            <div key={i} className="err-item">
+              {sweepParam}: {fmt(p.sweep_val, 3)} — {p.error}
             </div>
           ))}
         </details>
@@ -1316,6 +1512,374 @@ function PhysicsTurbofanPanel() {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   OFF-DESIGN PERFORMANCE & COMPONENT MATCHING PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+const OD_DEF = {
+  N_rel: 1.00,
+  alt: 35000,
+  mach: 0.80,
+  cpr_des: 8.0,
+  eta_c_des: 0.85,
+  mdot_corr_des: 20.0,
+  A8: null,
+  eta_i: 0.98,
+  eta_t: 0.88,
+  mech_loss: 0.99,
+  eta_b: 0.99,
+  dp_over_p: 0.04,
+  T_max: 1500.0,
+  eta_noz: 0.98,
+  throttle_pos: 1.0,
+};
+
+function OffDesignPanel() {
+  const [mode, setMode]       = useState("single");
+  const [p, setP]             = useState(OD_DEF);
+  const set = (k,v) => setP(prev => ({...prev, [k]: v}));
+
+  const [sw, setSw]           = useState({
+    param: "speed",
+    speedStart: 0.65, speedEnd: 1.05, fixedSpeed: 1.00,
+    altStart: 0, altEnd: 40000, fixedAlt: 35000,
+    machStart: 0.0, machEnd: 0.85, fixedMach: 0.80,
+    nSteps: 12,
+  });
+  const setSW = (k,v) => setSw(prev => ({...prev, [k]: v}));
+
+  const [mapData,   setMapData]   = useState(null);
+  const [result,    setResult]    = useState(null);
+  const [sweepData, setSweepData] = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
+  const [csvBusy,   setCsvBusy]   = useState(false);
+
+  // Fetch initial compressor map on load or design point change
+  useEffect(() => {
+    fetch(`${API}/api/off_design/map?cpr_des=${p.cpr_des}&eta_c_des=${p.eta_c_des}&mdot_corr_des=${p.mdot_corr_des}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setMapData(d); })
+      .catch(() => {});
+  }, [p.cpr_des, p.eta_c_des, p.mdot_corr_des]);
+
+  const makeSingleBody = () => ({
+    N_rel:         p.N_rel,
+    alt:           p.alt,
+    mach:          p.mach,
+    cpr_des:       p.cpr_des,
+    eta_c_des:     p.eta_c_des,
+    mdot_corr_des: p.mdot_corr_des,
+    A8:            p.A8 > 0 ? p.A8 : null,
+    eta_i:         p.eta_i,
+    eta_t:         p.eta_t,
+    mech_loss:     p.mech_loss,
+    eta_b:         p.eta_b,
+    dp_over_p:     p.dp_over_p,
+    T_max:         p.T_max,
+    eta_noz:       p.eta_noz,
+    throttle_pos:  p.throttle_pos,
+  });
+
+  const makeSweepBody = () => ({
+    sweep_param:   sw.param,
+    n_steps:       sw.nSteps,
+    speed_start:   sw.speedStart,
+    speed_end:     sw.speedEnd,
+    fixed_speed:   sw.fixedSpeed,
+    alt_start:     sw.altStart,
+    alt_end:       sw.altEnd,
+    fixed_alt:     sw.fixedAlt,
+    mach_start:    sw.machStart,
+    mach_end:      sw.machEnd,
+    fixed_mach:    sw.fixedMach,
+    cpr_des:       p.cpr_des,
+    eta_c_des:     p.eta_c_des,
+    mdot_corr_des: p.mdot_corr_des,
+    A8:            p.A8 > 0 ? p.A8 : null,
+    eta_i:         p.eta_i,
+    eta_t:         p.eta_t,
+    mech_loss:     p.mech_loss,
+    eta_b:         p.eta_b,
+    dp_over_p:     p.dp_over_p,
+    T_max:         p.T_max,
+    eta_noz:       p.eta_noz,
+    throttle_pos:  p.throttle_pos,
+  });
+
+  const post = async (url, payload) => {
+    const r = await fetch(`${API}${url}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.detail || r.statusText); }
+    return r.json();
+  };
+
+  const runSingle = async () => {
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const res = await post("/api/off_design/single", makeSingleBody());
+      setResult(res);
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const runSweep = async () => {
+    setLoading(true); setError(null); setSweepData(null);
+    try {
+      const res = await post("/api/off_design/sweep", makeSweepBody());
+      setSweepData(res);
+      if (res.map_curves) setMapData(res.map_curves);
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const doCSV = async () => {
+    setCsvBusy(true);
+    try {
+      const r = await fetch(`${API}/api/off_design/sweep/csv`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(makeSweepBody()),
+      });
+      if (!r.ok) throw new Error(r.statusText);
+      downloadCSV(await r.text(), `off_design_sweep_${sw.param}.csv`);
+    } catch(e) { setError(e.message); }
+    setCsvBusy(false);
+  };
+
+  const reset = () => {
+    setP(OD_DEF);
+    setResult(null);
+    setSweepData(null);
+    setError(null);
+  };
+
+  return (
+    <div className="grid">
+      {/* ── sidebar ──────────────────────────────── */}
+      <div className="sidebar">
+        <div className="card">
+          <div className="card-hd">Mode</div>
+          <div className="card-bd">
+            <div className="mode-tog">
+              <button className={`mode-btn ${mode==="single"?"active":""}`} onClick={()=>setMode("single")}>Single Point</button>
+              <button className={`mode-btn ${mode==="sweep"?"active":""}`}  onClick={()=>setMode("sweep")}>Operating Sweep</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Flight &amp; Shaft Speed</div>
+          <div className="card-bd">
+            <Slider label="Relative Spool Speed N/N_des" unit="" value={p.N_rel} min={0.60} max={1.05} step={0.01} onChange={v=>set("N_rel",v)} dp={2}/>
+            <Slider label="Altitude" unit="ft" value={p.alt} min={0} max={50000} step={500} onChange={v=>set("alt",v)} dp={0}/>
+            <Slider label="Flight Mach" unit="" value={p.mach} min={0.0} max={0.90} step={0.01} onChange={v=>set("mach",v)} dp={2}/>
+            <Slider label="Throttle (Fuel)" unit="" value={p.throttle_pos} min={0.5} max={1.0} step={0.01} onChange={v=>set("throttle_pos",v)} dp={2}/>
+          </div>
+        </div>
+
+        {mode==="sweep" && (
+          <div className="card">
+            <div className="card-hd">Operating Sweep Settings</div>
+            <div className="card-bd">
+              <div className="field">
+                <label>Sweep Parameter</label>
+                <select value={sw.param} onChange={e=>setSW("param",e.target.value)}>
+                  <option value="speed">Relative Shaft Speed (N/N_des)</option>
+                  <option value="altitude">Altitude (ft)</option>
+                  <option value="mach">Flight Mach Number</option>
+                </select>
+              </div>
+
+              {sw.param==="speed" && (
+                <>
+                  <div className="row2">
+                    <Num label="From N" unit="" value={sw.speedStart} min={0.60} max={1.05} step={0.05} onChange={v=>setSW("speedStart",v)} dp={2}/>
+                    <Num label="To N"   unit="" value={sw.speedEnd}   min={0.60} max={1.05} step={0.05} onChange={v=>setSW("speedEnd",v)} dp={2}/>
+                  </div>
+                  <Slider label="Fixed Alt" unit="ft" value={sw.fixedAlt} min={0} max={50000} step={500} onChange={v=>setSW("fixedAlt",v)} dp={0}/>
+                  <Slider label="Fixed Mach" unit="" value={sw.fixedMach} min={0} max={0.9} step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+                </>
+              )}
+
+              {sw.param==="altitude" && (
+                <>
+                  <div className="row2">
+                    <Num label="From Alt" unit="ft" value={sw.altStart} min={0} max={50000} step={1000} onChange={v=>setSW("altStart",v)}/>
+                    <Num label="To Alt"   unit="ft" value={sw.altEnd}   min={0} max={50000} step={1000} onChange={v=>setSW("altEnd",v)}/>
+                  </div>
+                  <Slider label="Fixed Speed N" unit="" value={sw.fixedSpeed} min={0.60} max={1.05} step={0.01} onChange={v=>setSW("fixedSpeed",v)} dp={2}/>
+                  <Slider label="Fixed Mach" unit="" value={sw.fixedMach} min={0} max={0.9} step={0.01} onChange={v=>setSW("fixedMach",v)} dp={2}/>
+                </>
+              )}
+
+              {sw.param==="mach" && (
+                <>
+                  <div className="row2">
+                    <Num label="From Mach" unit="" value={sw.machStart} min={0.0} max={0.9} step={0.05} onChange={v=>setSW("machStart",v)} dp={2}/>
+                    <Num label="To Mach"   unit="" value={sw.machEnd}   min={0.0} max={0.9} step={0.05} onChange={v=>setSW("machEnd",v)} dp={2}/>
+                  </div>
+                  <Slider label="Fixed Speed N" unit="" value={sw.fixedSpeed} min={0.60} max={1.05} step={0.01} onChange={v=>setSW("fixedSpeed",v)} dp={2}/>
+                  <Slider label="Fixed Alt" unit="ft" value={sw.fixedAlt} min={0} max={50000} step={500} onChange={v=>setSW("fixedAlt",v)} dp={0}/>
+                </>
+              )}
+
+              <Num label="Sweep Points" unit="" value={sw.nSteps} min={4} max={30} onChange={v=>setSW("nSteps",v)}/>
+              <div className="alert a-info" style={{fontSize:11}}>
+                Fast Brent root matching runs pure analytical cycle thermodynamics with sub-second convergence.
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card">
+          <div className="card-hd">Design Point Calibration</div>
+          <div className="card-bd">
+            <Slider label="Design CPR" unit="" value={p.cpr_des} min={3.0} max={25.0} step={0.1} onChange={v=>set("cpr_des",v)} dp={1}/>
+            <Slider label="Design Comp Eff η_c" unit="" value={p.eta_c_des} min={0.65} max={0.95} step={0.01} onChange={v=>set("eta_c_des",v)} dp={2}/>
+            <Slider label="Design ṁ_corr" unit="kg/s" value={p.mdot_corr_des} min={5.0} max={50.0} step={0.5} onChange={v=>set("mdot_corr_des",v)} dp={1}/>
+            <div className="field">
+              <label>Throat Area A₈ <span>{p.A8 > 0 ? `${p.A8.toFixed(4)} m²` : "Auto (Design Sized)"}</span></label>
+              <input type="number" min={0} max={2.0} step={0.01} value={p.A8 || ""} placeholder="Auto (Leave blank for design sizing)"
+                onChange={e => set("A8", e.target.value ? Number(e.target.value) : null)} />
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-hd">Turbomachinery &amp; Limits</div>
+          <div className="card-bd">
+            <Slider label="TIT Limit T_max" unit="K" value={p.T_max} min={1000} max={1900} step={10} onChange={v=>set("T_max",v)} dp={0}/>
+            <Slider label="Turbine Eff η_t" unit="" value={p.eta_t} min={0.65} max={0.96} step={0.01} onChange={v=>set("eta_t",v)} dp={2}/>
+            <Slider label="Mech Shaft Eff η_m" unit="" value={p.mech_loss} min={0.90} max={1.00} step={0.005} onChange={v=>set("mech_loss",v)} dp={3}/>
+            <Slider label="Combustor Eff η_b" unit="" value={p.eta_b} min={0.85} max={1.00} step={0.005} onChange={v=>set("eta_b",v)} dp={3}/>
+            <Slider label="Combustor Loss Δp/p" unit="" value={p.dp_over_p} min={0.01} max={0.12} step={0.005} onChange={v=>set("dp_over_p",v)} dp={3}/>
+            <Slider label="Inlet Eff η_i" unit="" value={p.eta_i} min={0.85} max={1.00} step={0.005} onChange={v=>set("eta_i",v)} dp={3}/>
+            <Slider label="Nozzle Eff η_noz" unit="" value={p.eta_noz} min={0.80} max={1.00} step={0.005} onChange={v=>set("eta_noz",v)} dp={2}/>
+          </div>
+        </div>
+
+        <div className="btn-row">
+          <button className="btn btn-od" style={{flex:3}}
+            onClick={mode==="single" ? runSingle : runSweep} disabled={loading}>
+            {loading ? <><span className="spin"/>Solving Matching Cycle…</> : mode==="single" ? "▶  Solve Operating Point" : `▶  Run Sweep (${sw.nSteps} pts)`}
+          </button>
+          <button className="btn btn-ghost btn-sm" style={{flex:1}} onClick={reset} disabled={loading}>Reset</button>
+        </div>
+
+        {mode==="sweep" && sweepData && (
+          <button className="btn btn-ghost btn-sm" onClick={doCSV} disabled={csvBusy}>
+            {csvBusy ? <><span className="spin"/>Generating CSV…</> : "⬇  Download Sweep CSV"}
+          </button>
+        )}
+      </div>
+
+      {/* ── content ──────────────────────────────── */}
+      <div className="content">
+        {error && <div className="alert a-err"><strong>Matching Solver Error:</strong>&nbsp;{error}</div>}
+
+        {!result && !sweepData && !loading && !error && (
+          <>
+            <div className="alert a-info">
+              <strong>Off-Design Component Matching Mode:</strong><br/>
+              Simulate true off-design throttled operation with fixed physical nozzle geometry (A₈),
+              turbine-compressor shaft power matching (W_c = W_t &middot; η_m), mass continuity,
+              and surge margin tracking across scalable axial compressor performance maps.
+            </div>
+            {mapData && (
+              <CompressorMapChart mapData={mapData} operatingPoint={null} operatingLine={null} />
+            )}
+          </>
+        )}
+
+        {loading && (
+          <div className="alert a-warn">
+            <span className="spin" style={{color:"#d29922"}}/>&nbsp;
+            Executing 1D component matching and equilibrium cycle evaluation…
+          </div>
+        )}
+
+        {result && mode==="single" && (
+          <>
+            {result.Surge_Status !== "STABLE" && (
+              <div className={`alert ${result.Surge_Status==="SURGE" ? "a-err" : "a-warn"}`}>
+                ⚠ Compressor Surge Alert: Operating point has {result.Surge_Status} margin (SM = {result.Surge_Margin_pct.toFixed(1)}%).
+              </div>
+            )}
+            {result.tit_limited && (
+              <div className="alert a-warn">
+                ⚠ TIT Limiter Active: Combustor temperature reached limit T_max = {p.T_max} K; fuel flow throttled automatically.
+              </div>
+            )}
+
+            <div className="kpi-strip">
+              <KPI label="Net Thrust" value={fmt(result.Thrust_kN, 2)} unit="kN" cls="hi-od" />
+              <KPI label="TSFC" value={fmt(result.TSFC, 2)} unit="kg/(kN·h)" />
+              <KPI label="Surge Margin" value={`${fmt(result.Surge_Margin_pct, 1)}%`} unit={result.Surge_Status} cls={result.Surge_Margin_pct < 10 ? "a-err" : result.Surge_Margin_pct < 15 ? "a-warn" : "hi-tf"} />
+              <KPI label="Corr. Flow" value={fmt(result.mdot_corr, 2)} unit="kg/s" />
+              <KPI label="CPR" value={fmt(result.CPR, 2)} unit="" />
+              <KPI label="TIT (T₀₄)" value={fmt(result.T04, 0)} unit="K" />
+            </div>
+
+            {/* Compressor Map with current operating point marker */}
+            <CompressorMapChart mapData={mapData} operatingPoint={result} operatingLine={null} />
+
+            {/* Emissions & Combustor strip */}
+            {result.emissions && (
+              <div className="card">
+                <div className="card-hd">Emissions &amp; Fuel Flow (Equilibrium Chemistry)</div>
+                <div className="card-bd" style={{display:"flex", flexWrap:"wrap", gap:"18px"}}>
+                  <div className="field">
+                    <label>Fuel Mass Flow</label>
+                    <span style={{fontFamily:"var(--mono)", fontSize:15, fontWeight:700}}>{fmt(result.mdot_fuel_kgh, 1)} kg/h</span>
+                  </div>
+                  <div className="field">
+                    <label>Fuel-Air Ratio (FAR)</label>
+                    <span style={{fontFamily:"var(--mono)", fontSize:15, fontWeight:700}}>{fmt(result.emissions.FAR, 4)}</span>
+                  </div>
+                  <div className="field">
+                    <label>EI NOx</label>
+                    <span style={{fontFamily:"var(--mono)", fontSize:15, fontWeight:700, color:"#f78166"}}>{fmt(result.emissions.EI_NOx, 2)} g/kg</span>
+                  </div>
+                  <div className="field">
+                    <label>EI CO</label>
+                    <span style={{fontFamily:"var(--mono)", fontSize:15, fontWeight:700, color:"#d29922"}}>{fmt(result.emissions.EI_CO, 2)} g/kg</span>
+                  </div>
+                  <div className="field">
+                    <label>EI CO₂</label>
+                    <span style={{fontFamily:"var(--mono)", fontSize:15, fontWeight:700, color:"var(--acc2)"}}>{fmt(result.emissions.EI_CO2, 1)} g/kg</span>
+                  </div>
+                  <div className="field">
+                    <label>Throat A₈ Match</label>
+                    <span style={{fontFamily:"var(--mono)", fontSize:15, fontWeight:700, color:"var(--acc1)"}}>{fmt(result.A8_calc, 4)} m² ({fmt(result.A8_match_err_pct, 2)}% err)</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Station Thermodynamics */}
+            <div className="card">
+              <div className="card-hd">Station Thermodynamics</div>
+              <div className="card-bd" style={{padding:0}}>
+                <StationTable stations={result.stations} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {sweepData && mode==="sweep" && (
+          <>
+            <CompressorMapChart
+              mapData={mapData || sweepData.map_curves}
+              operatingPoint={null}
+              operatingLine={sweepData.operating_line}
+            />
+            <OffDesignSweepCharts sweepData={sweepData} sweepParam={sweepData.sweep_param} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    ROOT APP
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -1399,10 +1963,13 @@ function App() {
           <button className={`eng-tab ${engine==="turbofan"?"tf":""}`} onClick={()=>setEngine("turbofan")}>
             ✈ CF34 Turbofan
           </button>
+          <button className={`eng-tab ${engine==="off_design"?"od":""}`} onClick={()=>setEngine("off_design")}>
+            ⚙ Off-Design Map
+          </button>
         </div>
       </header>
 
-            {engine==="turbojet" ? <TurbojetPanel/> : engine==="physics_tf" ? <PhysicsTurbofanPanel/> : <TurbofanPanel/>}
+      {engine==="turbojet" ? <TurbojetPanel/> : engine==="physics_tf" ? <PhysicsTurbofanPanel/> : engine==="turbofan" ? <TurbofanPanel/> : <OffDesignPanel/>}
     </div>
   );
 }
