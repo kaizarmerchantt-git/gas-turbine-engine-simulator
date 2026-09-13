@@ -19,6 +19,10 @@ from turbojet import calc_thrust, DEFAULT_ENG_PARAM, DEFAULT_ENG_PERF
 from turbofan import interp_altMNPC, get_envelope, ENVELOPE, KEY_OUTPUTS, DF_CF34, ALTS_LIST
 from physics_turbofan import calc_turbofan, DEFAULT_TF_PARAM, DEFAULT_TF_PERF
 from off_design import CompressorMap, solve_off_design, run_off_design_sweep
+from meanline import solve_compressor_stage, solve_multistage_compressor_meanline, solve_turbine_stage
+from turboprop import calc_turboprop_performance, run_turboprop_sweep
+from mission import run_mission_simulation
+from surrogate import GLOBAL_SURROGATE
 
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -259,6 +263,107 @@ class OffDesignSweepRequest(BaseModel):
     throttle_pos:  float = Field(1.0, ge=0.5, le=1.0)
 
 
+# Mean-Line Aerodynamics Schemas
+class MeanlineCompressorStageRequest(BaseModel):
+    T01:        float = Field(288.15, ge=150.0, le=800.0)
+    P01:        float = Field(101325.0, ge=5000.0, le=5000000.0)
+    delta_T0:   float = Field(35.0, ge=5.0, le=120.0)
+    N_rpm:      float = Field(12000.0, ge=1000.0, le=50000.0)
+    r_mean:     float = Field(0.28, ge=0.05, le=2.0)
+    C_a:        float = Field(160.0, ge=50.0, le=350.0)
+    reaction:   float = Field(0.50, ge=0.1, le=0.9)
+    eta_stage:  float = Field(0.88, ge=0.60, le=0.98)
+    mdot:       float = Field(20.0, ge=0.5, le=200.0)
+    solidity:   float = Field(1.2, ge=0.6, le=2.5)
+
+
+class MeanlineMultistageRequest(BaseModel):
+    CPR:        float = Field(8.0, ge=1.5, le=40.0)
+    n_stages:   int   = Field(6, ge=1, le=18)
+    T0_inlet:   float = Field(288.15, ge=150.0, le=600.0)
+    P0_inlet:   float = Field(101325.0, ge=5000.0, le=500000.0)
+    N_rpm:      float = Field(12000.0, ge=1000.0, le=50000.0)
+    r_mean:     float = Field(0.28, ge=0.05, le=2.0)
+    C_a:        float = Field(160.0, ge=50.0, le=350.0)
+    reaction:   float = Field(0.50, ge=0.1, le=0.9)
+    eta_poly:   float = Field(0.88, ge=0.60, le=0.98)
+    mdot:       float = Field(20.0, ge=0.5, le=200.0)
+
+
+class MeanlineTurbineStageRequest(BaseModel):
+    T01:        float = Field(1400.0, ge=800.0, le=2200.0)
+    P01:        float = Field(800000.0, ge=50000.0, le=5000000.0)
+    delta_T0:   float = Field(180.0, ge=20.0, le=400.0)
+    N_rpm:      float = Field(12000.0, ge=1000.0, le=50000.0)
+    r_mean:     float = Field(0.28, ge=0.05, le=2.0)
+    C_a:        float = Field(220.0, ge=50.0, le=450.0)
+    reaction:   float = Field(0.40, ge=0.1, le=0.9)
+    eta_stage:  float = Field(0.90, ge=0.60, le=0.98)
+    solidity:   float = Field(1.4, ge=0.6, le=2.5)
+
+
+# Turboprop / Turboshaft Schemas
+class TurbopropSingleRequest(BaseModel):
+    alt:             float = Field(15000.0, ge=0.0, le=45000.0)
+    mach:            float = Field(0.40, ge=0.0, le=0.75)
+    CPR:             float = Field(12.0, ge=3.0, le=30.0)
+    TIT:             float = Field(1400.0, ge=900.0, le=1900.0)
+    mdot_air:        float = Field(10.0, ge=1.0, le=100.0)
+    A8:              float = Field(0.08, ge=0.01, le=1.0)
+    prop_diameter_m: float = Field(3.2, ge=0.5, le=6.0)
+    prop_rpm:        float = Field(1200.0, ge=300.0, le=3000.0)
+    eta_i:           float = Field(0.98, ge=0.8, le=1.0)
+    eta_c:           float = Field(0.85, ge=0.6, le=0.98)
+    eta_b:           float = Field(0.99, ge=0.8, le=1.0)
+    dp_over_p:       float = Field(0.04, ge=0.01, le=0.12)
+    eta_hpt:         float = Field(0.89, ge=0.6, le=0.98)
+    eta_pt:          float = Field(0.90, ge=0.6, le=0.98)
+    eta_mech_core:   float = Field(0.99, ge=0.8, le=1.0)
+    eta_mech_pt:     float = Field(0.98, ge=0.8, le=1.0)
+    eta_gearbox:     float = Field(0.985, ge=0.8, le=1.0)
+    eta_noz:         float = Field(0.95, ge=0.8, le=1.0)
+    prop_eff_max:    float = Field(0.84, ge=0.5, le=0.95)
+
+
+class TurbopropSweepRequest(BaseModel):
+    sweep_param:  Literal["power", "altitude", "mach"] = "power"
+    n_steps:      int   = Field(10, ge=3, le=25)
+    alt_fixed:    float = Field(15000.0, ge=0.0, le=45000.0)
+    mach_fixed:   float = Field(0.40, ge=0.0, le=0.75)
+    cpr_fixed:    float = Field(12.0, ge=3.0, le=30.0)
+    tit_fixed:    float = Field(1400.0, ge=900.0, le=1900.0)
+
+
+# Mission Simulation Schemas
+class MissionSimulateRequest(BaseModel):
+    cruise_alt_ft:      float = Field(35000.0, ge=10000.0, le=45000.0)
+    cruise_mach:        float = Field(0.78, ge=0.40, le=0.88)
+    cruise_distance_nm: float = Field(1200.0, ge=100.0, le=4000.0)
+    payload_kg:         float = Field(9000.0, ge=0.0, le=15000.0)
+    fuel_load_kg:       Optional[float] = Field(None, ge=1000.0, le=20000.0)
+    engine_base_tsfc:   float = Field(16.5, ge=10.0, le=35.0)
+
+
+# Fast Surrogate Schemas
+class SurrogatePredictRequest(BaseModel):
+    alt_ft:   float = Field(35000.0, ge=0.0, le=45000.0)
+    mach:     float = Field(0.80, ge=0.0, le=0.90)
+    throttle: float = Field(1.00, ge=0.50, le=1.0)
+    CPR:      float = Field(14.0, ge=4.0, le=25.0)
+    TIT_K:    float = Field(1450.0, ge=1100.0, le=1800.0)
+
+
+class SurrogateSurfaceRequest(BaseModel):
+    x_param:        Literal["CPR", "TIT_K", "mach", "alt_ft", "throttle"] = "CPR"
+    y_param:        Literal["CPR", "TIT_K", "mach", "alt_ft", "throttle"] = "TIT_K"
+    fixed_alt:      float = Field(35000.0, ge=0.0, le=45000.0)
+    fixed_mach:     float = Field(0.80, ge=0.0, le=0.90)
+    fixed_throttle: float = Field(1.00, ge=0.50, le=1.0)
+    fixed_cpr:      float = Field(14.0, ge=4.0, le=25.0)
+    fixed_tit:      float = Field(1450.0, ge=1100.0, le=1800.0)
+    grid_res:       int   = Field(15, ge=5, le=30)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Health check
 # ─────────────────────────────────────────────────────────────────────────────
@@ -267,7 +372,16 @@ class OffDesignSweepRequest(BaseModel):
 def root():
     return {
         "status": "online",
-        "models": ["turbojet", "physics_turbofan", "turbofan_cf34", "off_design"],
+        "models": [
+            "turbojet",
+            "physics_turbofan",
+            "turbofan_cf34",
+            "off_design",
+            "meanline",
+            "turboprop",
+            "mission",
+            "surrogate"
+        ],
         "docs":   "/docs",
     }
 
@@ -901,3 +1015,159 @@ def off_design_sweep_csv(req: OffDesignSweepRequest):
         return PlainTextResponse(content=buf.getvalue(), media_type="text/csv")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1D Mean-Line Aerodynamics Endpoints (Extension 6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/meanline/defaults")
+def meanline_defaults():
+    """Return default parameters for single-stage and multistage meanline design."""
+    return {
+        "compressor_stage": {
+            "T01": 288.15, "P01": 101325.0, "delta_T0": 35.0,
+            "N_rpm": 12000.0, "r_mean": 0.28, "C_a": 160.0,
+            "reaction": 0.50, "eta_stage": 0.88, "mdot": 20.0, "solidity": 1.2
+        },
+        "multistage": {
+            "CPR": 8.0, "n_stages": 6, "T0_inlet": 288.15, "P0_inlet": 101325.0,
+            "N_rpm": 12000.0, "r_mean": 0.28, "C_a": 160.0,
+            "reaction": 0.50, "eta_poly": 0.88, "mdot": 20.0
+        },
+        "turbine_stage": {
+            "T01": 1400.0, "P01": 800000.0, "delta_T0": 180.0,
+            "N_rpm": 12000.0, "r_mean": 0.28, "C_a": 220.0,
+            "reaction": 0.40, "eta_stage": 0.90, "solidity": 1.4
+        }
+    }
+
+
+@app.post("/api/meanline/compressor_stage")
+def meanline_compressor_stage_endpoint(req: MeanlineCompressorStageRequest):
+    """Computes velocity triangles, stage loading, De Haller ratio, and Lieblein DF for a compressor stage."""
+    try:
+        res = solve_compressor_stage(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/meanline/multistage_compressor")
+def meanline_multistage_compressor_endpoint(req: MeanlineMultistageRequest):
+    """Solves stage-by-stage meanline aerodynamic stacking and annulus tapering for an axial compressor."""
+    try:
+        res = solve_multistage_compressor_meanline(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/meanline/turbine_stage")
+def meanline_turbine_stage_endpoint(req: MeanlineTurbineStageRequest):
+    """Computes velocity triangles, stage loading, and Zweifel coefficient for an axial turbine stage."""
+    try:
+        res = solve_turbine_stage(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Turboprop & Turboshaft Endpoints (Extension 4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/turboprop/defaults")
+def turboprop_defaults():
+    """Return default flight and engine parameters for turboprop simulation."""
+    return {
+        "alt": 15000.0, "mach": 0.40, "CPR": 12.0, "TIT": 1400.0, "mdot_air": 10.0,
+        "A8": 0.08, "prop_diameter_m": 3.2, "prop_rpm": 1200.0, "eta_i": 0.98,
+        "eta_c": 0.85, "eta_b": 0.99, "dp_over_p": 0.04, "eta_hpt": 0.89, "eta_pt": 0.90,
+        "eta_mech_core": 0.99, "eta_mech_pt": 0.98, "eta_gearbox": 0.985, "eta_noz": 0.95,
+        "prop_eff_max": 0.84
+    }
+
+
+@app.post("/api/turboprop/single")
+def turboprop_single(req: TurbopropSingleRequest):
+    """Run single-point turboprop / turboshaft cycle simulation with power turbine extraction."""
+    try:
+        res = calc_turboprop_performance(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/turboprop/sweep")
+def turboprop_sweep(req: TurbopropSweepRequest):
+    """Run parametric sweep for turboprop across power (TIT), altitude, or Mach."""
+    try:
+        res = run_turboprop_sweep(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mission Simulation Endpoints (Extension 8)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/mission/defaults")
+def mission_defaults():
+    """Return default mission profile and regional jet aircraft parameters."""
+    return {
+        "cruise_alt_ft": 35000.0,
+        "cruise_mach": 0.78,
+        "cruise_distance_nm": 1200.0,
+        "payload_kg": 9000.0,
+        "fuel_load_kg": None,
+        "engine_base_tsfc": 16.5,
+    }
+
+
+@app.post("/api/mission/simulate")
+def mission_simulate(req: MissionSimulateRequest):
+    """Simulate a complete 6-segment flight mission and generate payload-range envelope."""
+    try:
+        res = run_mission_simulation(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fast Surrogate Model Endpoints (Extension 7)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/surrogate/defaults")
+def surrogate_defaults():
+    """Return default query parameters for fast surrogate model evaluation."""
+    return {
+        "alt_ft": 35000.0,
+        "mach": 0.80,
+        "throttle": 1.00,
+        "CPR": 14.0,
+        "TIT_K": 1450.0,
+    }
+
+
+@app.post("/api/surrogate/predict")
+def surrogate_predict(req: SurrogatePredictRequest):
+    """Instantaneous (< 1 ms) multi-output cycle prediction via pure NumPy RBF surrogate."""
+    try:
+        res = GLOBAL_SURROGATE.predict_point(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/surrogate/surface")
+def surrogate_surface(req: SurrogateSurfaceRequest):
+    """Rapid (< 5 ms) 2D grid response surface generation for real-time 3D contour exploration."""
+    try:
+        res = GLOBAL_SURROGATE.generate_2d_surface(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+

@@ -17,6 +17,10 @@ An interactive, web-based **0D thermodynamic cycle simulator** for gas turbine e
 | **Physics-based Turbofan** | Dual-spool, physics-based | Dual mass-flow convergence loop + Cantera chemistry | 10–60 s / point |
 | **Off-Design Component Matching** | Scalable axial map, 1D matching | Pure Python Brent root matching + fixed throat A₈ + Surge Margin | < 0.5 s / point |
 | **GE CF34-10E Turbofan** | High-bypass, data-driven | Pre-computed pyCycle/OpenMDAO deck, trilinear interpolation | < 50 ms / point |
+| **1D Mean-Line Aerodynamics** | Velocity triangles & stage sizing | Euler turbomachinery, De Haller diffusion limit, Zweifel loading | < 20 ms / stage |
+| **Turboprop & Turboshaft Cycle** | Shaft power & propeller thrust | Gas generator core + free power turbine + variable prop efficiency | 5–25 s / point |
+| **Mission Analysis & Fuel Burn** | 6-phase flight mission profile | Coupled aircraft drag polar + numerical fuel burn + payload-range | < 50 ms / mission |
+| **Response Surface Surrogate** | Multi-output fast predictor | 2nd-order regularized polynomial with interaction cross-terms | < 0.2 ms / point |
 
 ### Gas path stations
 
@@ -157,6 +161,70 @@ Solves true off-design throttled engine performance using scalable component map
      $$\%SM = \left( \frac{PR_{\text{surge}} / \dot{m}_{\text{corr,surge}}}{PR_{\text{op}} / \dot{m}_{\text{corr,op}}} - 1 \right) \times 100\%$$
    - Color-coded safety status: Stable ($> 15\%$), Marginal ($10\% - 15\%$), or Critical Surge ($< 10\%$).
 
+### `meanline.py` — 1D Mean-Line Aerodynamic Stage Design (Extension 6)
+
+Bridging 0D thermodynamic station models and physical 3D blading hardware:
+1. **Euler Turbomachinery Equation**:
+   $$\Delta h_0 = U \cdot (C_{\theta 2} - C_{\theta 1}) = U \cdot \Delta C_\theta$$
+2. **Kinematic Velocity Triangles**:
+   - Resolves absolute velocities ($\vec{C} = C_a \hat{x} + C_\theta \hat{\theta}$) and relative velocities ($\vec{W} = \vec{C} - \vec{U}$).
+   - Flow angles: $\alpha = \arctan(C_\theta / C_a)$, $\beta = \arctan(W_\theta / C_a)$.
+   - Local Mach numbers: absolute Mach $M = C / \sqrt{\gamma R T}$ and relative Mach $M_{\text{rel}} = W / \sqrt{\gamma R T}$.
+3. **Aerodynamic Loading & Diffusion Limits**:
+   - Work coefficient $\psi = \Delta h_0 / U^2$, flow coefficient $\phi = C_a / U$, and degree of reaction $R = \Delta h_{\text{rotor}} / \Delta h_0$.
+   - **De Haller Criterion**: Enforces $W_2 / W_1 \ge 0.72$ to prevent boundary layer separation and stall across compressor rotor blades.
+   - **Lieblein Diffusion Factor ($DF$)**: Evaluates blade surface deceleration and boundary layer thickening ($DF \le 0.45$ for modern conservative design).
+4. **Multi-Stage Casing Annulus Sizing**:
+   - Computes density increase $\rho_0(s)$ across stages and sizes annulus area $A(s) = \dot{m} / (\rho(s) C_a)$.
+   - Predicts blade height tapering ($h_s$) and hub-to-tip radius ratio ($r_h / r_t$) progression.
+5. **Axial Turbine Stage Aerodynamics**:
+   - Evaluates expansion ratio, total work extraction, reaction, and **Zweifel loading coefficient** ($\psi_z \approx 0.8 - 1.0$ for optimal solidity without separation).
+
+### `turboprop.py` — Turboprop & Turboshaft Cycle Variant (Extension 4)
+
+Simulates shaft-power producing gas turbines for propeller-driven and rotorcraft applications:
+1. **Core Work Matching & Free Power Turbine**:
+   - Gas generator core: Compressor work demand $W_c$ is balanced by High Pressure Turbine (HPT) work extraction: $W_{\text{hpt}} = W_c / \eta_m$.
+   - Free Power Turbine (PT): Extracts remaining enthalpy to generate mechanical shaft power:
+     $$P_{\text{shaft}} = \dot{m}_{\text{core}} \cdot \Delta h_{0,\text{pt}} \cdot \eta_{\text{gear}} \cdot \eta_m$$
+2. **Propeller Kinematics & Residual Jet Thrust**:
+   - Propeller efficiency dynamically parameterized by flight Mach: $\eta_{\text{prop}}(M) = \eta_{\text{max}} \cdot \left[1 - 0.15 \cdot \left(\frac{M - M_{\text{opt}}}{0.5}\right)^2\right]$.
+   - Propeller thrust: $F_{\text{prop}} = \frac{P_{\text{shaft}} \cdot \eta_{\text{prop}}}{V_{\text{flight}}}$.
+   - Residual jet thrust from exhaust nozzle: $F_{\text{jet}} = \dot{m} (V_8 - V_0) + A_8 (p_8 - p_0)$.
+   - Equivalent Shaft Horsepower: $\text{ESHP} = \text{SHP} + \frac{F_{\text{jet}} [\text{lbf}]}{2.5}$.
+3. **Cantera Equilibrium Combustion**:
+   - Real-gas fuel/air equilibrium with `nDodecane_Reitz.yaml` calculating PSFC [$\text{kg}/(\text{kW}\cdot\text{h})$] and emission indices ($EI_{\text{NOx}}, EI_{\text{CO}}, EI_{\text{CO}_2}$).
+
+### `mission.py` — Flight Mission Profile & Fuel Burn Integration (Extension 8)
+
+Connects 0D cycle models to real aircraft flight operations:
+1. **6-Phase Standard Mission Profile**:
+   - Standard sequence: Taxi-Out (15 min) $\to$ Takeoff $\to$ Climb $\to$ Cruise $\to$ Descent $\to$ 45-min Loiter (FAA/EASA reserves).
+2. **Coupled Aircraft Drag Polar**:
+   - Lift coefficient: $C_L = \frac{2 W}{\rho V^2 S_{\text{wing}}}$.
+   - Parabolic drag polar with wave drag rise: $C_D = C_{D0} + K \cdot C_L^2 + C_{D,\text{wave}}(M)$.
+   - Required engine thrust: $T_{\text{req}} = \frac{D + W \sin\gamma}{N_{\text{engines}}}$.
+3. **Numerical Fuel Burn Integration**:
+   - Solves $\Delta W = \int \dot{m}_f \, dt$ with mass conservation update $W_{k+1} = W_k - \Delta W_k$.
+4. **Payload-Range Diagram Envelope**:
+   - Solves the classic 3-point Breguet range envelope:
+     - Point A: Maximum structural payload capacity.
+     - Point B: MTOW limit with maximum fuel tank capacity.
+     - Point C: Zero-payload ferry range.
+
+### `surrogate.py` — Fast Response Surface Surrogate Model (Extension 7)
+
+Provides sub-millisecond cycle queries for real-time optimization and flight simulation:
+1. **Formulation**:
+   - 2nd-order polynomial response surface with full pairwise interaction cross-terms:
+     $$\mathbf{p}(\mathbf{x}) = \left[1, x_1, \dots, x_5, x_1^2, \dots, x_5^2, x_1 x_2, \dots, x_4 x_5\right]^T \in \mathbb{R}^{21}$$
+   - Ridge regularized least-squares regression: $\mathbf{W} = (\mathbf{P}^T \mathbf{P} + \lambda \mathbf{I})^{-1} \mathbf{P}^T \mathbf{Y}$.
+2. **Multi-Output Mapping**:
+   - Maps 5D operating vector $(\text{Alt}, M, \text{Throttle}, CPR, TIT)$ simultaneously to: Net Thrust [kN], TSFC [g/(kN·s)], Mass Airflow [kg/s], Fuel Flow [kg/s], and $EI_{\text{NOx}}$ [g/kg].
+3. **Speed & Stability**:
+   - Single-point prediction latency $< 0.2\text{ ms}$ (pure NumPy vectorized linear algebra).
+   - Strict physical monotonicity preserved across flight throttle and TIT ranges.
+
 ### `main.py` — FastAPI backend
 
 Defines Pydantic request/response schemas with range validation for all inputs. The 26 endpoints cover single-point simulation, parameter sweeps, T–s diagram data, side-by-side comparison, off-design map and operating lines, and CSV export for all engine models. CORS is open (`*`) for local development.
@@ -189,6 +257,10 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 - **Dual-Spool Physics Turbofan** — first-principles 2-spool solver with Fan, HPC, HPT, LPT, and independent core and bypass choked/unchoked nozzles
 - **Off-Design Performance & Component Matching (Extension 1)** — 1D matching solver with shaft power balance ($W_c = W_t \cdot \eta_m$), mass conservation, fixed throat geometry ($A_8$), and pure Python/NumPy Brent root finding
 - **Interactive Compressor Performance Maps** — scalable multi-speed axial compressor maps with $\beta$-coordinate parameterization, dynamic Surge Margin ($\%SM$) computation, and engine operating line tracing
+- **1D Mean-Line Aerodynamic Stage Design (Extension 6)** — velocity triangles ($U, C_a, C_\theta, W_a, W_\theta$), Euler work equation, De Haller ratio ($W_2/W_1 \ge 0.72$), Lieblein diffusion factor, and multi-stage annulus tapering
+- **Turboprop & Turboshaft Cycle Variant (Extension 4)** — gas generator core, free power turbine work extraction, propeller kinematics ($\eta_{\text{prop}}(M)$), shaft power (SHP/ESHP), and residual jet thrust
+- **Mission Flight Profile & Aircraft Fuel Burn (Extension 8)** — 6-phase mission simulation (Taxi $\to$ Takeoff $\to$ Climb $\to$ Cruise $\to$ Descent $\to$ 45-min Loiter), coupled aircraft polar drag matching, and Breguet payload-range envelope curves
+- **High-Speed Response Surface Surrogate (Extension 7)** — sub-millisecond (< 0.2 ms) multi-output prediction layer utilizing regularized 2nd-order polynomial models with interaction cross-terms
 - **T–s diagrams** — single-spool Brayton cycle and dual-stream (core + bypass) cycle diagrams with Cantera entropy data
 - **Parameter sweeps** — shaft speed ($N/N_{\text{des}}$), altitude, Mach, throttle, BPR, CPR, and FPR sweeps with live Chart.js visualizations
 - **Binary bisection TIT limiter** — $O(\log N)$ logarithmic bisection limiter enforcing combustor temperature limits without performance cliffs
@@ -205,18 +277,23 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 ```
 gas-turbine-app/
 ├── backend/
-│   ├── main.py              FastAPI — all 26 API endpoints + Pydantic schemas
-│   ├── off_design.py        Off-design matching solver, compressor maps & surge margin
-│   ├── turbojet.py          Turbojet model — mass-flow convergence + bisection TIT limiter
-│   ├── physics_turbofan.py  Dual-spool turbofan model — two-spool work balance + dual nozzle solver
-│   ├── turbofan.py          CF34 deck loader + trilinear interpolation
-│   ├── engine_helper.py     Inlet / compressor / combustor / turbine / nozzle functions
-│   ├── ISA_module.py        ICAO ISA atmosphere + airspeed conversions
-│   ├── test_off_design.py   Automated test suite for off-design matching & maps (10 tests)
-│   ├── test_physics.py      Automated test suite for baseline models & endpoints (16 tests)
+│   ├── main.py                   FastAPI — 37 API endpoints + Pydantic schemas
+│   ├── meanline.py               1D mean-line aerodynamic stage design & annulus sizing
+│   ├── turboprop.py              Turboprop & turboshaft Brayton cycle solver with free PT
+│   ├── mission.py                Aircraft mission fuel burn simulation & payload-range curves
+│   ├── surrogate.py              Fast 2nd-order response surface surrogate model (< 0.2 ms)
+│   ├── off_design.py             Off-design matching solver, compressor maps & surge margin
+│   ├── turbojet.py               Turbojet model — mass-flow convergence + bisection TIT limiter
+│   ├── physics_turbofan.py       Dual-spool turbofan model — two-spool work balance + dual nozzle solver
+│   ├── turbofan.py               CF34 deck loader + trilinear interpolation
+│   ├── engine_helper.py          Inlet / compressor / combustor / turbine / nozzle functions
+│   ├── ISA_module.py             ICAO ISA atmosphere + airspeed conversions
+│   ├── test_advanced_modules.py  Automated test suite for advanced extensions (8 tests)
+│   ├── test_off_design.py        Automated test suite for off-design matching & maps (10 tests)
+│   ├── test_physics.py           Automated test suite for baseline models & endpoints (16 tests)
 │   └── requirements.txt
 ├── frontend/
-│   └── index.html           Single-file React app (no build step) with Chart.js, T-s diagrams & Compressor Maps
+│   └── index.html                Single-file React app with 8 panels, Chart.js, SVGs & maps
 ├── data/
 │   └── CF34_deck_v4.csv     Pre-computed CF34-10E engine deck (pyCycle)
 ├── notebooks/               Source Jupyter notebooks from the YT series
@@ -249,7 +326,7 @@ start.bat
 Run the full automated test suite:
 
 ```bash
-pytest -v backend/test_physics.py backend/test_off_design.py
+pytest -v backend/test_physics.py backend/test_off_design.py backend/test_advanced_modules.py
 ```
 
 Full instructions in **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.
@@ -284,6 +361,18 @@ With the backend running, interactive docs at http://localhost:8000/docs
 | POST | `/api/off_design/single` | 1D matched off-design cycle solver with Surge Margin |
 | POST | `/api/off_design/sweep` | Off-design parameter sweep & operating line construction |
 | POST | `/api/off_design/sweep/csv` | Off-design operating sweep result as CSV |
+| GET  | `/api/meanline/defaults` | Default meanline compressor stage inputs |
+| POST | `/api/meanline/compressor_stage` | 1D compressor stage kinematics, triangles & De Haller |
+| POST | `/api/meanline/multistage_compressor` | Multi-stage compressor stacking & annulus tapering |
+| POST | `/api/meanline/turbine_stage` | 1D turbine stage aerodynamics & Zweifel loading |
+| GET  | `/api/turboprop/defaults` | Default turboprop cycle inputs |
+| POST | `/api/turboprop/single` | Single-point turboprop cycle (SHP, ESHP, prop thrust, PSFC) |
+| POST | `/api/turboprop/sweep` | Turboprop parameter sweep (Mach, altitude, PR, TIT) |
+| GET  | `/api/mission/defaults` | Default mission simulation inputs |
+| POST | `/api/mission/simulate` | 6-phase flight mission fuel burn & payload-range envelope |
+| GET  | `/api/surrogate/defaults` | Default surrogate model query vector |
+| POST | `/api/surrogate/predict` | Real-time surrogate evaluation (< 0.2 ms latency) |
+| POST | `/api/surrogate/surface` | 2D response surface generator across any input slice |
 
 ---
 
