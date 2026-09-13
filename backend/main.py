@@ -5,12 +5,12 @@ Serves both the turbojet (Cantera-based) and turbofan (CF34 deck interpolation) 
 
 from __future__ import annotations
 import traceback
-from typing import Literal, Optional
+from typing import Literal, Optional, Any, Dict, List
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 import json
 
 import numpy as np
@@ -46,15 +46,18 @@ app.add_middleware(
 import math
 
 def _sanitize(obj):
-    """Recursively replace float nan/inf with None so JSON stays RFC 8259 compliant."""
-    if isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
+    """Recursively replace float nan/inf with None and convert numpy types so JSON stays RFC 8259 compliant."""
+    if isinstance(obj, (float, np.floating)):
+        f = float(obj)
+        if math.isnan(f) or math.isinf(f):
             return None
-        return obj
-    if isinstance(obj, dict):
-        return {k: _sanitize(v) for k, v in obj.items()}
-    if isinstance(obj, list):
+        return f
+    if isinstance(obj, (int, np.integer)):
+        return int(obj)
+    if isinstance(obj, (np.ndarray, list, tuple)):
         return [_sanitize(v) for v in obj]
+    if isinstance(obj, dict):
+        return {str(k): _sanitize(v) for k, v in obj.items()}
     return obj
 
 
@@ -277,6 +280,20 @@ class MeanlineCompressorStageRequest(BaseModel):
     mdot:       float = Field(20.0, ge=0.5, le=200.0)
     solidity:   float = Field(1.2, ge=0.6, le=2.5)
 
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            r_mean = float(d.get("r_mean", 0.28))
+            if "U" in d and "N_rpm" not in d:
+                u = float(d["U"])
+                d["N_rpm"] = (u * 60.0) / (2.0 * math.pi * r_mean) if r_mean > 0 else 12000.0
+            if "C_a1" in d and "C_a" not in d:
+                d["C_a"] = d["C_a1"]
+            return d
+        return data
+
 
 class MeanlineMultistageRequest(BaseModel):
     CPR:        float = Field(8.0, ge=1.5, le=40.0)
@@ -290,6 +307,26 @@ class MeanlineMultistageRequest(BaseModel):
     eta_poly:   float = Field(0.88, ge=0.60, le=0.98)
     mdot:       float = Field(20.0, ge=0.5, le=200.0)
 
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "num_stages" in d and "n_stages" not in d:
+                d["n_stages"] = d["num_stages"]
+            if "T0_in" in d and "T0_inlet" not in d:
+                d["T0_inlet"] = d["T0_in"]
+            if "P0_in" in d and "P0_inlet" not in d:
+                d["P0_inlet"] = d["P0_in"]
+            if "eta_stage" in d and "eta_poly" not in d:
+                d["eta_poly"] = d["eta_stage"]
+            if "U_mean" in d and "N_rpm" not in d:
+                r_mean = float(d.get("r_mean", 0.28))
+                u = float(d["U_mean"])
+                d["N_rpm"] = (u * 60.0) / (2.0 * math.pi * r_mean) if r_mean > 0 else 12000.0
+            return d
+        return data
+
 
 class MeanlineTurbineStageRequest(BaseModel):
     T01:        float = Field(1400.0, ge=800.0, le=2200.0)
@@ -301,6 +338,18 @@ class MeanlineTurbineStageRequest(BaseModel):
     reaction:   float = Field(0.40, ge=0.1, le=0.9)
     eta_stage:  float = Field(0.90, ge=0.60, le=0.98)
     solidity:   float = Field(1.4, ge=0.6, le=2.5)
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            r_mean = float(d.get("r_mean", 0.28))
+            if "U" in d and "N_rpm" not in d:
+                u = float(d["U"])
+                d["N_rpm"] = (u * 60.0) / (2.0 * math.pi * r_mean) if r_mean > 0 else 12000.0
+            return d
+        return data
 
 
 # Turboprop / Turboshaft Schemas
@@ -325,6 +374,33 @@ class TurbopropSingleRequest(BaseModel):
     eta_noz:         float = Field(0.95, ge=0.8, le=1.0)
     prop_eff_max:    float = Field(0.84, ge=0.5, le=0.95)
 
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "altitude_m" in d and "alt" not in d:
+                d["alt"] = float(d["altitude_m"]) * 3.28084
+            if "mdot_core" in d and "mdot_air" not in d:
+                d["mdot_air"] = d["mdot_core"]
+            if "pi_c" in d and "CPR" not in d:
+                d["CPR"] = d["pi_c"]
+            if "T04" in d and "TIT" not in d:
+                d["TIT"] = d["T04"]
+            if "rpm" in d and "prop_rpm" not in d:
+                d["prop_rpm"] = d["rpm"]
+            if "burner_dP" in d and "dp_over_p" not in d:
+                d["dp_over_p"] = d["burner_dP"]
+            if "eta_gear" in d and "eta_gearbox" not in d:
+                d["eta_gearbox"] = d["eta_gear"]
+            if "eta_mech" in d:
+                if "eta_mech_core" not in d:
+                    d["eta_mech_core"] = d["eta_mech"]
+                if "eta_mech_pt" not in d:
+                    d["eta_mech_pt"] = d["eta_mech"]
+            return d
+        return data
+
 
 class TurbopropSweepRequest(BaseModel):
     sweep_param:  Literal["power", "altitude", "mach"] = "power"
@@ -333,6 +409,22 @@ class TurbopropSweepRequest(BaseModel):
     mach_fixed:   float = Field(0.40, ge=0.0, le=0.75)
     cpr_fixed:    float = Field(12.0, ge=3.0, le=30.0)
     tit_fixed:    float = Field(1400.0, ge=900.0, le=1900.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "param" in d and "sweep_param" not in d:
+                d["sweep_param"] = d["param"]
+            if "altitude_m" in d and "alt_fixed" not in d:
+                d["alt_fixed"] = float(d["altitude_m"]) * 3.28084
+            if "pi_c" in d and "cpr_fixed" not in d:
+                d["cpr_fixed"] = d["pi_c"]
+            if "T04" in d and "tit_fixed" not in d:
+                d["tit_fixed"] = d["T04"]
+            return d
+        return data
 
 
 # Mission Simulation Schemas
@@ -344,6 +436,18 @@ class MissionSimulateRequest(BaseModel):
     fuel_load_kg:       Optional[float] = Field(None, ge=1000.0, le=20000.0)
     engine_base_tsfc:   float = Field(16.5, ge=10.0, le=35.0)
 
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "cruise_alt_m" in d and "cruise_alt_ft" not in d:
+                d["cruise_alt_ft"] = float(d["cruise_alt_m"]) * 3.28084
+            if "cruise_dist_km" in d and "cruise_distance_nm" not in d:
+                d["cruise_distance_nm"] = float(d["cruise_dist_km"]) / 1.852
+            return d
+        return data
+
 
 # Fast Surrogate Schemas
 class SurrogatePredictRequest(BaseModel):
@@ -353,16 +457,62 @@ class SurrogatePredictRequest(BaseModel):
     CPR:      float = Field(14.0, ge=4.0, le=25.0)
     TIT_K:    float = Field(1450.0, ge=1100.0, le=1800.0)
 
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "altitude_m" in d and "alt_ft" not in d:
+                d["alt_ft"] = float(d["altitude_m"]) * 3.28084
+            if "cpr" in d and "CPR" not in d:
+                d["CPR"] = d["cpr"]
+            if "tit_K" in d and "TIT_K" not in d:
+                d["TIT_K"] = d["tit_K"]
+            return d
+        return data
+
 
 class SurrogateSurfaceRequest(BaseModel):
-    x_param:        Literal["CPR", "TIT_K", "mach", "alt_ft", "throttle"] = "CPR"
-    y_param:        Literal["CPR", "TIT_K", "mach", "alt_ft", "throttle"] = "TIT_K"
+    x_param:        str = "CPR"
+    y_param:        str = "TIT_K"
+    x_min:          Optional[float] = None
+    x_max:          Optional[float] = None
+    n_points:       Optional[int] = Field(30, ge=5, le=100)
+    fixed_params:   Optional[Dict[str, Any]] = None
     fixed_alt:      float = Field(35000.0, ge=0.0, le=45000.0)
     fixed_mach:     float = Field(0.80, ge=0.0, le=0.90)
-    fixed_throttle: float = Field(1.00, ge=0.50, le=1.0)
-    fixed_cpr:      float = Field(14.0, ge=4.0, le=25.0)
+    fixed_throttle: float = Field(1.00, ge=0.30, le=1.0)
+    fixed_cpr:      float = Field(14.0, ge=4.0, le=35.0)
     fixed_tit:      float = Field(1450.0, ge=1100.0, le=1800.0)
     grid_res:       int   = Field(15, ge=5, le=30)
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            fp = d.get("fixed_params")
+            if isinstance(fp, dict):
+                if "altitude_m" in fp and "fixed_alt" not in d:
+                    d["fixed_alt"] = float(fp["altitude_m"]) * 3.28084
+                elif "alt_ft" in fp and "fixed_alt" not in d:
+                    d["fixed_alt"] = float(fp["alt_ft"])
+                if "mach" in fp and "fixed_mach" not in d:
+                    d["fixed_mach"] = float(fp["mach"])
+                if "throttle" in fp and "fixed_throttle" not in d:
+                    d["fixed_throttle"] = float(fp["throttle"])
+                if "cpr" in fp and "fixed_cpr" not in d:
+                    d["fixed_cpr"] = float(fp["cpr"])
+                elif "CPR" in fp and "fixed_cpr" not in d:
+                    d["fixed_cpr"] = float(fp["CPR"])
+                if "tit_K" in fp and "fixed_tit" not in d:
+                    d["fixed_tit"] = float(fp["tit_K"])
+                elif "TIT_K" in fp and "fixed_tit" not in d:
+                    d["fixed_tit"] = float(fp["TIT_K"])
+            elif "altitude_m" in d and "fixed_alt" not in d:
+                d["fixed_alt"] = float(d["altitude_m"]) * 3.28084
+            return d
+        return data
 
 
 # Hybrid Electric Schemas (Extension 5)
@@ -1199,9 +1349,36 @@ def surrogate_predict(req: SurrogatePredictRequest):
 
 @app.post("/api/surrogate/surface")
 def surrogate_surface(req: SurrogateSurfaceRequest):
-    """Rapid (< 5 ms) 2D grid response surface generation for real-time 3D contour exploration."""
+    """Rapid (< 5 ms) 2D grid response surface or 1D response curve generation."""
     try:
-        res = GLOBAL_SURROGATE.generate_2d_surface(**req.model_dump())
+        metric_names = {"thrust_kN", "thrust", "tsfc", "air_flow_kg_s", "fuel_flow_kg_s", "EI_NOx_g_kg"}
+        if req.y_param in metric_names or req.x_min is not None or req.fixed_params is not None:
+            res = GLOBAL_SURROGATE.generate_1d_curve(
+                x_param=req.x_param,
+                y_param=req.y_param,
+                x_min=req.x_min,
+                x_max=req.x_max,
+                n_points=req.n_points or 30,
+                fixed_alt=req.fixed_alt,
+                fixed_mach=req.fixed_mach,
+                fixed_throttle=req.fixed_throttle,
+                fixed_cpr=req.fixed_cpr,
+                fixed_tit=req.fixed_tit,
+            )
+        else:
+            param_map = {"altitude_m": "alt_ft", "altitude": "alt_ft", "cpr": "CPR", "tit_K": "TIT_K", "tit": "TIT_K"}
+            x_p = param_map.get(req.x_param, req.x_param)
+            y_p = param_map.get(req.y_param, req.y_param)
+            res = GLOBAL_SURROGATE.generate_2d_surface(
+                x_param=x_p,
+                y_param=y_p,
+                fixed_alt=req.fixed_alt,
+                fixed_mach=req.fixed_mach,
+                fixed_throttle=req.fixed_throttle,
+                fixed_cpr=req.fixed_cpr,
+                fixed_tit=req.fixed_tit,
+                grid_res=req.grid_res,
+            )
         return _sanitize(res)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")

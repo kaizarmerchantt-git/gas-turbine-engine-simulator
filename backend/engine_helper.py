@@ -277,6 +277,9 @@ def multi_stage_compressor(
             p_0in = get_p(gas_in.P, gamma_in, M_in)
             compressor_work  = 0.0
             stage_multiplier = np.multiply(stage_multiplier, shifter)
+            geom_mean = np.prod(stage_multiplier) ** (1.0 / n_stages)
+            if geom_mean > 0:
+                stage_multiplier /= geom_mean
             prev_delta_t     = max_delta_t
         elif n_iter >= max_iter:
             n_iter += 1
@@ -309,7 +312,7 @@ def multi_stage_turbine(
     T_0in    = get_T(gas_in.T, gamma_in, M_in)
     p_0in    = get_p(gas_in.P, gamma_in, M_in)
 
-    T_in = get_Ts(T_0in, gamma_in, M_out)
+    T_in = get_Ts(T_0in, gamma_in, M_in)
     p_in = get_ps(p_0in, T_in, T_0in, gamma_in)
 
     W_per_stage  = (W_c / eta_m) / n_stages
@@ -376,9 +379,11 @@ def calc_nozzle(
     p0_in  = get_p(gas_in.P, gamma, M_in)
     T0_in  = get_T(gas_in.T, gamma, M_in)
 
-    pc_ratio = 1.0 / (
-        1.0 - (1.0 / eta_noz) * ((gamma - 1.0) / (gamma + 1.0))
-    ) ** (gamma / (gamma - 1.0))
+    crit_term = 1.0 - (1.0 / max(eta_noz, 1e-4)) * ((gamma - 1.0) / (gamma + 1.0))
+    if crit_term <= 1e-4:
+        pc_ratio = 100.0  # physical choked limit guard
+    else:
+        pc_ratio = 1.0 / (crit_term ** (gamma / (gamma - 1.0)))
 
     if p_amb <= p0_in / pc_ratio:
         choked = True

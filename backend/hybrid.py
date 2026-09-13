@@ -277,11 +277,12 @@ def run_hybrid_mission_simulation(
 
         climb_angle = 0.035 if p_def["name"] == "Climb" else -0.025 if p_def["name"] == "Descent" else 0.0
         T_eng_N, D_tot_N, CL, CD = compute_drag(current_weight_kg * 9.80665, alt_ft, mach, aircraft, climb_angle)
-        P_shaft_req_kW = (T_eng_N * V_mps / 1000.0) / pt.get("propulsor_eta", 0.82)
+        n_eng = int(aircraft.get("n_engines", 2))
+        P_shaft_req_kW = (T_eng_N * n_eng * V_mps / 1000.0) / pt.get("propulsor_eta", 0.82)
         P_shaft_req_kW = max(100.0, P_shaft_req_kW)
 
         T_conv_N, _, _, _ = compute_drag(conv_weight_kg * 9.80665, alt_ft, mach, aircraft, climb_angle)
-        P_conv_shaft_kW = (T_conv_N * V_mps / 1000.0) / pt.get("propulsor_eta", 0.82)
+        P_conv_shaft_kW = (T_conv_N * n_eng * V_mps / 1000.0) / pt.get("propulsor_eta", 0.82)
         conv_fuel_flow = (P_conv_shaft_kW * calc_bsfc(1.0, pt["base_bsfc_kg_kWh"])) / 3600.0
         conv_phase_fuel_kg = conv_fuel_flow * t_sec
         total_conv_fuel_kg += conv_phase_fuel_kg
@@ -303,9 +304,12 @@ def run_hybrid_mission_simulation(
         if requested_elec_kWh > max_avail_elec_kWh and requested_elec_kWh > 0 and total_capacity_kWh > 0:
             phase_elec_kWh = max_avail_elec_kWh
             frac_electric_met = max_avail_elec_kWh / requested_elec_kWh
-            unmet_motor_mech = pt_res["electric_motor_power_kW"] * (1.0 - frac_electric_met)
-            addl_fuel_kg = (unmet_motor_mech * calc_bsfc(1.0, pt["base_bsfc_kg_kWh"]) / 3600.0) * t_sec
-            phase_fuel_kg = (pt_res["fuel_flow_kg_s"] * frac_electric_met * t_sec) + addl_fuel_kg
+            t1 = t_sec * frac_electric_met
+            t2 = t_sec * (1.0 - frac_electric_met)
+            fuel_t1 = pt_res["fuel_flow_kg_s"] * t1
+            bsfc_conv = calc_bsfc(1.0, pt["base_bsfc_kg_kWh"])
+            fuel_t2 = (P_shaft_req_kW * bsfc_conv / 3600.0) * t2
+            phase_fuel_kg = fuel_t1 + fuel_t2
             soc = 0.20
         else:
             phase_elec_kWh = requested_elec_kWh
@@ -387,11 +391,14 @@ def run_hybrid_trade_study(
         x_label = "Takeoff Hybrid Ratio (H_P)"
         hp_vals = [i * (0.50 / max(1, n_points - 1)) for i in range(n_points)]
         for hp in hp_vals:
+            kw = dict(kwargs)
+            kw.pop("takeoff_hybrid_ratio", None)
+            kw.pop("climb_hybrid_ratio", None)
             res = run_hybrid_mission_simulation(
                 architecture=architecture,
                 takeoff_hybrid_ratio=hp,
                 climb_hybrid_ratio=hp * 0.6,
-                **kwargs
+                **kw
             )
             points.append({
                 "x": hp,
@@ -405,10 +412,12 @@ def run_hybrid_trade_study(
         x_label = "Battery Specific Energy [Wh/kg]"
         e_vals = [180.0 + i * ((550.0 - 180.0) / max(1, n_points - 1)) for i in range(n_points)]
         for e_sp in e_vals:
+            kw = dict(kwargs)
+            kw.pop("specific_energy_Wh_kg", None)
             res = run_hybrid_mission_simulation(
                 architecture=architecture,
                 specific_energy_Wh_kg=e_sp,
-                **kwargs
+                **kw
             )
             points.append({
                 "x": e_sp,
@@ -422,10 +431,12 @@ def run_hybrid_trade_study(
         x_label = "Cruise Distance [km]"
         d_vals = [300.0 + i * ((2000.0 - 300.0) / max(1, n_points - 1)) for i in range(n_points)]
         for dist in d_vals:
+            kw = dict(kwargs)
+            kw.pop("cruise_dist_km", None)
             res = run_hybrid_mission_simulation(
                 architecture=architecture,
                 cruise_dist_km=dist,
-                **kwargs
+                **kw
             )
             points.append({
                 "x": dist,

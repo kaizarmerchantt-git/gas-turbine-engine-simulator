@@ -32,10 +32,10 @@
       padding: 0 20px; height: 54px; display: flex; align-items: center;
       justify-content: space-between; position: sticky; top: 0; z-index: 200;
     }
-    .h-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; }
+    .h-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; flex-shrink: 0; }
     .h-sub  { font-size: 12px; color: var(--muted); margin-left: 6px; }
-    .eng-tabs { display: flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: 7px; }
-    .eng-tab { padding: 5px 15px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); background: transparent; transition: all .15s; }
+    .eng-tabs { display: flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: 7px; overflow-x: auto; max-width: calc(100vw - 320px); scrollbar-width: thin; flex-shrink: 1; }
+    .eng-tab { padding: 5px 15px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); background: transparent; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
     .eng-tab:hover { color: var(--text); border-color: var(--border); }
     .eng-tab.tj { background: rgba(88,166,255,.15); color: var(--acc1); border-color: var(--acc1); }
     .eng-tab.tf { background: rgba(63,185,80,.15);  color: var(--acc2); border-color: var(--acc2); }
@@ -189,9 +189,18 @@ function useChart(ref, type, data, opts) {
   const inst = useRef(null);
   useEffect(() => {
     if (!ref.current) return;
-    if (inst.current) inst.current.destroy();
-    if (!data) { inst.current = null; return; }
-    inst.current = new Chart(ref.current, { type, data, options: opts });
+    if (!data) {
+      if (inst.current) { inst.current.destroy(); inst.current = null; }
+      return;
+    }
+    if (inst.current && inst.current.config.type === type) {
+      inst.current.data = data;
+      if (opts) inst.current.options = opts;
+      inst.current.update("none");
+    } else {
+      if (inst.current) inst.current.destroy();
+      inst.current = new Chart(ref.current, { type, data, options: opts });
+    }
     return () => { if (inst.current) { inst.current.destroy(); inst.current = null; } };
   }, [data]);
 }
@@ -1917,11 +1926,11 @@ function OffDesignPanel() {
 
 function VelocityTrianglesSvg({ inlet, exit, type = "compressor" }) {
   if (!inlet || !exit) return null;
-  const U = inlet.U || 350;
-  const Ca1 = inlet.Ca || 180;
-  const Ctheta1 = inlet.Ctheta || 0;
-  const Ca2 = exit.Ca || 175;
-  const Ctheta2 = exit.Ctheta || 120;
+  const U = inlet.U || exit.U || 350;
+  const Ca1 = inlet.C_a ?? inlet.Ca ?? 180;
+  const Ctheta1 = inlet.C_theta ?? inlet.Ctheta ?? 0;
+  const Ca2 = exit.C_a ?? exit.Ca ?? 175;
+  const Ctheta2 = exit.C_theta ?? exit.Ctheta ?? 120;
   
   const maxVel = Math.max(U, Ca1, Ca2, Math.abs(Ctheta2), Math.abs(inlet.W || 300), Math.abs(exit.W || 200)) || 350;
   const scale = 110 / maxVel;
@@ -1993,13 +2002,18 @@ function AnnulusSvg({ stages }) {
   const w = 620, h = 180;
   const xStart = 60, xEnd = 560;
   const dx = n > 1 ? (xEnd - xStart) / (n - 1) : 0;
-  const maxTip = Math.max(...stages.map(s => s.tip_radius_mm));
-  const minHub = Math.min(...stages.map(s => s.hub_radius_mm));
+  
+  const getTip = s => s.tip_radius_mm ?? s.geometry?.r_tip_out_mm ?? s.geometry?.r_tip_in_mm ?? 320;
+  const getHub = s => s.hub_radius_mm ?? s.geometry?.r_hub_out_mm ?? s.geometry?.r_hub_in_mm ?? 220;
+  const getBladeH = s => s.blade_height_mm ?? s.geometry?.blade_height_out_mm ?? (getTip(s) - getHub(s));
+
+  const maxTip = Math.max(...stages.map(getTip));
+  const minHub = Math.min(...stages.map(getHub));
   
   const toY = r => h - 30 - ((r - minHub) / Math.max(10, maxTip - minHub + 30)) * (h - 60);
   
-  const tipCoords = stages.map((s, i) => [xStart + i * dx, toY(s.tip_radius_mm)]);
-  const hubCoords = stages.map((s, i) => [xStart + i * dx, toY(s.hub_radius_mm)]);
+  const tipCoords = stages.map((s, i) => [xStart + i * dx, toY(getTip(s))]);
+  const hubCoords = stages.map((s, i) => [xStart + i * dx, toY(getHub(s))]);
   
   const tipPts = tipCoords.map(p => `${p[0]},${p[1]}`).join(" ");
   const hubPtsRev = [...hubCoords].reverse().map(p => `${p[0]},${p[1]}`).join(" ");
@@ -2015,15 +2029,15 @@ function AnnulusSvg({ stages }) {
           <polyline points={hubCoords.map(p => `${p[0]},${p[1]}`).join(" ")} fill="none" stroke="#e3b341" strokeWidth="2.5" />
           {stages.map((s, i) => {
             const x = xStart + i * dx;
-            const yTip = toY(s.tip_radius_mm);
-            const yHub = toY(s.hub_radius_mm);
+            const yTip = toY(getTip(s));
+            const yHub = toY(getHub(s));
             return (
               <g key={i}>
                 <line x1={x} y1={yTip} x2={x} y2={yHub} stroke="rgba(255,255,255,0.3)" strokeDasharray="3,3" />
                 <circle cx={x} cy={yTip} r="3.5" fill="#58a6ff" />
                 <circle cx={x} cy={yHub} r="3.5" fill="#e3b341" />
                 <text x={x} y={h - 10} fill="var(--muted)" fontSize="10" textAnchor="middle" fontFamily="var(--mono)">
-                  S{s.stage_num}: {fmt(s.blade_height_mm, 1)}mm
+                  S{s.stage_num}: {fmt(getBladeH(s), 1)}mm
                 </text>
               </g>
             );
@@ -2297,10 +2311,10 @@ function TurbopropSweepCharts({ sweepData, param }) {
                : param === "pi_c" ? "Compressor Pressure Ratio"
                : "Turbine Inlet Temperature [K]";
 
-  const pwrPts = pts.map(p => ({ x: p.Mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: p.P_shaft_shp }));
-  const psfcPts = pts.map(p => ({ x: p.Mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: p.PSFC_kg_kWh }));
-  const thrustPts = pts.map(p => ({ x: p.Mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: p.total_thrust_kN }));
-  const effPts = pts.map(p => ({ x: p.Mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: p.prop_eff * 100 }));
+  const pwrPts = pts.map(p => ({ x: p.sweep_val ?? p.Mach ?? p.mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: p.P_shaft_shp ?? p.SHP }));
+  const psfcPts = pts.map(p => ({ x: p.sweep_val ?? p.Mach ?? p.mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: p.PSFC_kg_kWh }));
+  const thrustPts = pts.map(p => ({ x: p.sweep_val ?? p.Mach ?? p.mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: p.total_thrust_kN ?? p.F_total_kN ?? (p.total_thrust_N ? p.total_thrust_N / 1000 : 0) }));
+  const effPts = pts.map(p => ({ x: p.sweep_val ?? p.Mach ?? p.mach ?? p.altitude_m ?? p.pi_c ?? p.T04, y: (p.propeller_efficiency ?? p.eta_prop ?? p.prop_eff ?? 0) * 100 }));
 
   const mkOpts = (xT, yT) => ({
     animation: false, responsive: true,

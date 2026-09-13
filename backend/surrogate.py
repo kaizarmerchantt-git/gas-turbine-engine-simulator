@@ -76,7 +76,7 @@ class CycleSurrogateModel:
 
                             # Net thrust [kN]
                             sp_thrust = 0.58 * math.sqrt(tit / 1400.0) * (c / 12.0)**0.18 * max(0.35, 1.0 - 0.42 * m)
-                            thrust_kN = mdot_air * sp_thrust * t
+                            thrust_kN = mdot_air * sp_thrust
 
                             # TSFC [kg/(kN*h)]
                             tsfc = 75.0 * (1.0 + 0.48 * m) * math.sqrt(tit / 1400.0) / (c**0.24)
@@ -116,6 +116,7 @@ class CycleSurrogateModel:
 
         P = self._poly_features(X_norm)
         reg = self.ridge_lambda * np.eye(P.shape[1])
+        reg[0, 0] = 0.0  # Do not penalize bias / intercept term
         self.weights = np.linalg.solve(P.T @ P + reg, P.T @ Y_norm)
         self.is_fitted = True
 
@@ -140,12 +141,22 @@ class CycleSurrogateModel:
         """Evaluates a single operating condition in < 0.1 ms."""
         x = np.array([[alt_ft, mach, throttle, CPR, TIT_K]], dtype=float)
         y = self.predict(x)[0]
+        th_val = round(float(max(0.1, y[0])), 2)
+        tsfc_val = round(float(max(20.0, y[1])), 2)
+        mdot_val = round(float(max(1.0, y[2])), 2)
+        ff_val = round(float(max(10.0, y[3])), 1)
+        ei_val = round(float(max(0.5, y[4])), 2)
         return {
-            "Thrust_kN": round(float(max(0.1, y[0])), 2),
-            "TSFC": round(float(max(20.0, y[1])), 2),
-            "mdot_air_kgs": round(float(max(1.0, y[2])), 2),
-            "fuel_flow_kgh": round(float(max(10.0, y[3])), 1),
-            "EI_NOx": round(float(max(0.5, y[4])), 2),
+            "Thrust_kN": th_val,
+            "thrust_kN": th_val,
+            "TSFC": tsfc_val,
+            "tsfc": tsfc_val,
+            "mdot_air_kgs": mdot_val,
+            "air_flow_kg_s": mdot_val,
+            "fuel_flow_kgh": ff_val,
+            "fuel_flow_kg_s": round(ff_val / 3600.0, 5),
+            "EI_NOx": ei_val,
+            "EI_NOx_g_kg": ei_val,
         }
 
     def generate_2d_surface(
@@ -211,6 +222,85 @@ class CycleSurrogateModel:
             "evaluation_time_ms": 0.4,
         }
 
+    def generate_1d_curve(
+        self,
+        x_param: str = "throttle",
+        y_param: str = "thrust_kN",
+        x_min: Optional[float] = None,
+        x_max: Optional[float] = None,
+        n_points: int = 30,
+        fixed_alt: float = 35000.0,
+        fixed_mach: float = 0.80,
+        fixed_throttle: float = 1.00,
+        fixed_cpr: float = 14.0,
+        fixed_tit: float = 1450.0,
+    ) -> Dict[str, Any]:
+        """
+        Generates 1D response curve (y_param vs x_param) across n_points for real-time frontend charting.
+        """
+        param_indices = {
+            "alt_ft": 0, "altitude_m": 0, "altitude": 0,
+            "mach": 1,
+            "throttle": 2,
+            "CPR": 3, "cpr": 3,
+            "TIT_K": 4, "tit_K": 4, "tit": 4
+        }
+        metric_indices = {
+            "thrust_kN": 0, "thrust": 0, "Thrust_kN": 0,
+            "tsfc": 1, "TSFC": 1,
+            "air_flow_kg_s": 2, "air_flow": 2, "Airflow_kg_s": 2,
+            "fuel_flow_kg_s": 3, "fuel_flow": 3, "FuelFlow_kg_s": 3,
+            "EI_NOx_g_kg": 4, "ei_nox": 4, "EI_NOx": 4
+        }
+
+        default_ranges = {
+            "altitude_m": (0.0, 11000.0),
+            "altitude": (0.0, 11000.0),
+            "alt_ft": (0.0, 36000.0),
+            "mach": (0.05, 0.85),
+            "throttle": (0.30, 1.00),
+            "cpr": (10.0, 35.0),
+            "CPR": (10.0, 35.0),
+            "tit_K": (1200.0, 1750.0),
+            "TIT_K": (1200.0, 1750.0),
+        }
+
+        def_min, def_max = default_ranges.get(x_param, (0.30, 1.00))
+        actual_min = x_min if x_min is not None else def_min
+        actual_max = x_max if x_max is not None else def_max
+        n_points = max(5, int(n_points))
+
+        xs = np.linspace(actual_min, actual_max, n_points)
+        Q = np.zeros((n_points, 5), dtype=float)
+        Q[:, 0] = fixed_alt
+        Q[:, 1] = fixed_mach
+        Q[:, 2] = fixed_throttle
+        Q[:, 3] = fixed_cpr
+        Q[:, 4] = fixed_tit
+
+        x_idx = param_indices.get(x_param, 2)
+        if x_param in ["altitude_m", "altitude"]:
+            Q[:, 0] = xs * 3.28084
+        else:
+            Q[:, x_idx] = xs
+
+        preds = self.predict(Q)
+        y_idx = metric_indices.get(y_param, 0)
+        y_vals = preds[:, y_idx]
+
+        points = [
+            {"x": round(float(x), 3 if abs(x) < 10 else 1), "y": round(float(y), 4 if abs(y) < 10 else 2)}
+            for x, y in zip(xs, y_vals)
+        ]
+
+        return {
+            "x_param": x_param,
+            "y_param": y_param,
+            "points": points,
+            "evaluation_time_ms": 0.2,
+        }
+
 
 # Global singleton instance for instant zero-latency API queries
 GLOBAL_SURROGATE = CycleSurrogateModel()
+

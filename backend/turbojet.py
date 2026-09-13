@@ -114,6 +114,11 @@ def calc_thrust(
     phi = 0.0
     T_max_limited = False
 
+    # Pre-declare variables to avoid UnboundLocalError on loop failure
+    mdot_noz = 0.0
+    F = 0.0
+    choked = False
+
     while not converged and mdot_iter <= max_mdot_iter and not conv_error:
 
         # ── Station a → 1 (free-stream to inlet entry, isentropic) ─────────
@@ -150,7 +155,7 @@ def calc_thrust(
             continue   # skip combustor/turbine/nozzle with bad compressor state
 
         # ── Station 3 → 4 (combustor with TIT limiter) ─────────────────────
-        _TIT_FLOOR = 0.5  # minimum internal throttle scalar
+        _TIT_FLOOR = 0.05  # minimum internal throttle scalar (allows idle / de-throttling)
         phi = (
             (eng_perf["max_f"] - eng_perf["min_f"])
             * throttle_pos
@@ -231,11 +236,15 @@ def calc_thrust(
         mdot_fuel = (_far_i / eng_perf["eta_b"]) * current_mdot
         mdot_turb = current_mdot + mdot_fuel
         w_t_spec = (compressor_work * current_mdot) / (mdot_turb * eng_perf["mech_loss"])
-        _, _ = multi_stage_turbine(
-            gas[st[4]], w_t_spec,
-            eng_param["turb_n_stages"], eng_perf["eta_t"],
-            1.0, M[st[4]], M[st[5]], gas[st[5]]
-        )
+        try:
+            _, _ = multi_stage_turbine(
+                gas[st[4]], w_t_spec,
+                eng_param["turb_n_stages"], eng_perf["eta_t"],
+                1.0, M[st[4]], M[st[5]], gas[st[5]]
+            )
+        except ValueError:
+            conv_error = True
+            break
 
         # ── Station 5 → 8 (nozzle) ─────────────────────────────────────────
         choked, mdot_noz, M[st[6]], F = calc_nozzle(
@@ -248,7 +257,7 @@ def calc_thrust(
             converged = True
         else:
             mdot_iter   += 1
-            current_mdot = mdot_noz
+            current_mdot = 0.5 * current_mdot + 0.5 * mdot_noz
 
     # ── Post-loop performance metrics ───────────────────────────────────────
     # Bug T1-A fix: FAR = Z/(1-Z), not Z.
@@ -299,7 +308,7 @@ def calc_thrust(
         def calc_ei(species_name, mw_species):
             # Cantera species names in some mechanisms (like Reitz) are lowercase
             X_spec = sp_dict.get(species_name.lower(), sp_dict.get(species_name.upper(), 0.0))
-            return (X_spec * mw_species) / (FAR * MW_mix) * 1000.0
+            return (X_spec * mw_species) / MW_mix * ((1.0 + FAR) / FAR) * 1000.0
             
         ei_no  = calc_ei("NO", 30.01)
         ei_no2 = calc_ei("NO2", 46.01)

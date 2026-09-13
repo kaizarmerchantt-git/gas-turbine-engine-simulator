@@ -132,7 +132,7 @@ def solve_compressor_stage(
     C3 = C1
     alpha3_deg = alpha1_deg
     T03 = T02
-    T3 = T03 - (C3 * C3) / (2.0 * cp)
+    T3 = max(10.0, T03 - (C3 * C3) / (2.0 * cp))
 
     # Stage Pressure Ratio and Stagnation Pressure
     PR_stage = (1.0 + eta_stage * delta_T0 / T01) ** (gamma / (gamma - 1.0))
@@ -140,19 +140,22 @@ def solve_compressor_stage(
     P3 = P03 * (T3 / T03) ** (gamma / (gamma - 1.0))
     rho3 = P3 / (R_gas * T3)
 
-    # Aerodynamic Health Metrics
-    # 1. De Haller Number (Rotor deceleration ratio)
+    a3 = math.sqrt(gamma * R_gas * T3)
+    M_C3 = C3 / a3 if a3 > 0 else 0.0
+
+    # Aerodynamic Health Metrics (Evaluates BOTH Rotor and Stator for stall/diffusion risks)
     de_haller_rotor = W2 / W1 if W1 > 0 else 0.0
     de_haller_stator = C3 / C2 if C2 > 0 else 0.0
-    de_haller_status = "HEALTHY" if de_haller_rotor >= 0.72 else ("MARGINAL" if de_haller_rotor >= 0.68 else "STALL RISK")
+    min_de_haller = min(de_haller_rotor, de_haller_stator)
+    de_haller_status = "HEALTHY" if min_de_haller >= 0.72 else ("MARGINAL" if min_de_haller >= 0.68 else "STALL RISK")
 
-    # 2. Lieblein Diffusion Factor: DF = (1 - W2/W1) + |W_theta1 - W_theta2| / (2 * solidity * W1)
-    df_rotor = (1.0 - de_haller_rotor) + abs(W_theta1 - W_theta2) / (2.0 * solidity * W1) if W1 > 0 else 0.0
-    df_stator = (1.0 - de_haller_stator) + abs(C_theta2 - C_theta3) / (2.0 * solidity * C2) if C2 > 0 else 0.0
-    df_status = "OPTIMAL" if df_rotor <= 0.45 else ("HIGH LOAD" if df_rotor <= 0.55 else "OVERLOADED")
+    # Lieblein Diffusion Factor
+    df_rotor = (1.0 - de_haller_rotor) + abs(W_theta1 - W_theta2) / (2.0 * max(0.1, solidity) * W1) if W1 > 0 else 0.0
+    df_stator = (1.0 - de_haller_stator) + abs(C_theta2 - C_theta3) / (2.0 * max(0.1, solidity) * C2) if C2 > 0 else 0.0
+    max_df = max(df_rotor, df_stator)
+    df_status = "OPTIMAL" if max_df <= 0.45 else ("HIGH LOAD" if max_df <= 0.55 else "OVERLOADED")
 
     # Blade Annulus Dimensions
-    # mdot = rho * C_a * A_annulus = rho * C_a * (2 * pi * r_mean * blade_height)
     blade_height_in = mdot / (rho1 * C_a * 2.0 * math.pi * r_mean) if (rho1 * C_a * r_mean) > 0 else 0.05
     blade_height_out = mdot / (rho3 * C_a * 2.0 * math.pi * r_mean) if (rho3 * C_a * r_mean) > 0 else 0.05
 
@@ -164,46 +167,79 @@ def solve_compressor_stage(
     r_hub_out = max(0.01, r_mean - 0.5 * blade_height_out)
     hub_to_tip_out = r_hub_out / r_tip_out if r_tip_out > 0 else 0.5
 
+    rotor_inlet_dict = {
+        "C": round(C1, 2),
+        "C_a": round(C_a, 2),
+        "Ca": round(C_a, 2),
+        "C_theta": round(C_theta1, 2),
+        "Ctheta": round(C_theta1, 2),
+        "alpha_deg": round(alpha1_deg, 2),
+        "W": round(W1, 2),
+        "W_theta": round(W_theta1, 2),
+        "beta_deg": round(beta1_deg, 2),
+        "M_abs": round(M_C1, 3),
+        "Mach_abs": round(M_C1, 3),
+        "M_rel": round(M_W1, 3),
+        "Mach_rel": round(M_W1, 3),
+        "U": round(U, 2),
+    }
+    rotor_exit_dict = {
+        "C": round(C2, 2),
+        "C_a": round(C_a, 2),
+        "Ca": round(C_a, 2),
+        "C_theta": round(C_theta2, 2),
+        "Ctheta": round(C_theta2, 2),
+        "alpha_deg": round(alpha2_deg, 2),
+        "W": round(W2, 2),
+        "W_theta": round(W_theta2, 2),
+        "beta_deg": round(beta2_deg, 2),
+        "M_abs": round(M_C2, 3),
+        "Mach_abs": round(M_C2, 3),
+        "M_rel": round(M_W2, 3),
+        "Mach_rel": round(M_W2, 3),
+        "U": round(U, 2),
+    }
+    stator_exit_dict = {
+        "C": round(C3, 2),
+        "C_a": round(C_a, 2),
+        "Ca": round(C_a, 2),
+        "C_theta": round(C_theta3, 2),
+        "Ctheta": round(C_theta3, 2),
+        "alpha_deg": round(alpha3_deg, 2),
+        "M_abs": round(M_C3, 3),
+        "Mach_abs": round(M_C3, 3),
+    }
+
     return {
         "U": round(U, 2),
         "psi": round(psi, 4),
         "phi": round(phi, 4),
         "reaction": round(reaction, 3),
+        "degree_of_reaction_R": round(reaction, 3),
+        "loading_coefficient_psi": round(psi, 4),
+        "flow_coefficient_phi": round(phi, 4),
         "delta_h0": round(delta_h0, 1),
+        "delta_h0_kJkg": round(delta_h0 / 1000.0, 2),
         "PR_stage": round(PR_stage, 4),
+        "stage_PR": round(PR_stage, 4),
         "T01": round(T01, 1),
         "T03": round(T03, 1),
         "P01": round(P01, 1),
         "P03": round(P03, 1),
+        "de_haller_ratio": round(de_haller_rotor, 3),
+        "de_haller_acceptable": de_haller_status == "HEALTHY",
+        "lieblein_diffusion_rotor": round(df_rotor, 3),
+        "blade_height_inlet_mm": round(blade_height_in * 1000.0, 1),
+        "blade_height_exit_mm": round(blade_height_out * 1000.0, 1),
+        "tip_radius_mm": round(r_tip_out * 1000.0, 1),
+        "hub_radius_mm": round(r_hub_out * 1000.0, 1),
+        "rotor_inlet_triangle": rotor_inlet_dict,
+        "rotor_exit_triangle": rotor_exit_dict,
+        "stator_exit_triangle": stator_exit_dict,
         "velocity_triangles": {
-            "rotor_inlet": {
-                "C": round(C1, 2),
-                "C_a": round(C_a, 2),
-                "C_theta": round(C_theta1, 2),
-                "alpha_deg": round(alpha1_deg, 2),
-                "W": round(W1, 2),
-                "W_theta": round(W_theta1, 2),
-                "beta_deg": round(beta1_deg, 2),
-                "M_abs": round(M_C1, 3),
-                "M_rel": round(M_W1, 3),
-            },
-            "rotor_exit": {
-                "C": round(C2, 2),
-                "C_a": round(C_a, 2),
-                "C_theta": round(C_theta2, 2),
-                "alpha_deg": round(alpha2_deg, 2),
-                "W": round(W2, 2),
-                "W_theta": round(W_theta2, 2),
-                "beta_deg": round(beta2_deg, 2),
-                "M_abs": round(M_C2, 3),
-                "M_rel": round(M_W2, 3),
-            },
-            "stator_exit": {
-                "C": round(C3, 2),
-                "C_a": round(C_a, 2),
-                "C_theta": round(C_theta3, 2),
-                "alpha_deg": round(alpha3_deg, 2),
-            }
+            "rotor_inlet": rotor_inlet_dict,
+            "rotor_exit": rotor_exit_dict,
+            "stator_exit": stator_exit_dict,
         },
         "aerodynamics": {
             "de_haller_rotor": round(de_haller_rotor, 3),
@@ -216,10 +252,14 @@ def solve_compressor_stage(
         "geometry": {
             "blade_height_in_mm": round(blade_height_in * 1000.0, 1),
             "blade_height_out_mm": round(blade_height_out * 1000.0, 1),
-            "r_hub_in_mm": round(r_hub_in * 1000.0, 1),
             "r_tip_in_mm": round(r_tip_in * 1000.0, 1),
+            "r_hub_in_mm": round(r_hub_in * 1000.0, 1),
+            "r_tip_out_mm": round(r_tip_out * 1000.0, 1),
+            "r_hub_out_mm": round(r_hub_out * 1000.0, 1),
             "hub_to_tip_in": round(hub_to_tip_in, 3),
             "hub_to_tip_out": round(hub_to_tip_out, 3),
+            "hub_to_tip_ratio_in": round(hub_to_tip_in, 3),
+            "hub_to_tip_ratio_out": round(hub_to_tip_out, 3),
         }
     }
 
@@ -277,13 +317,20 @@ def solve_multistage_compressor_meanline(
 
     return {
         "n_stages": n_stages,
+        "num_stages": n_stages,
         "CPR_target": CPR,
         "CPR_actual": round(overall_CPR, 3),
+        "total_PR": round(overall_CPR, 3),
         "total_work_kJkg": round(overall_W, 2),
+        "total_delta_h0_kJkg": round(overall_W, 2),
         "T0_inlet": round(T0_inlet, 1),
+        "T0_in": round(T0_inlet, 1),
         "T0_exit": round(curr_T0, 1),
+        "T0_out": round(curr_T0, 1),
         "P0_inlet_kPa": round(P0_inlet / 1000.0, 2),
         "P0_exit_kPa": round(curr_P0 / 1000.0, 2),
+        "P0_in": round(P0_inlet, 1),
+        "P0_out": round(curr_P0, 1),
         "N_rpm": N_rpm,
         "U_mean": round(stages[0]["U"], 2),
         "stages": stages
@@ -309,6 +356,10 @@ def solve_turbine_stage(
     """
     omega = 2.0 * math.pi * N_rpm / 60.0
     U = omega * r_mean
+    if U <= 0:
+        raise ValueError("Blade speed U must be positive")
+    if delta_T0 >= eta_stage * T01:
+        raise ValueError("Required turbine temperature drop exceeds available work limit")
 
     delta_h0 = cp * delta_T0
     psi = delta_h0 / (U * U)      # Stage loading coefficient (typically 1.2 - 2.5 for turbines)
@@ -317,8 +368,7 @@ def solve_turbine_stage(
     # Turbine Euler equation: Delta h0 = U * (C_theta2 - C_theta3)
     delta_C_theta = delta_h0 / U
 
-    # R = (h2 - h3) / Delta h0 ~= 1 - (C_theta2 + C_theta3) / (2 * U)
-    # C_theta2 + C_theta3 = 2 * (1 - R) * U
+    # Rotor inlet swirl C_theta2 and rotor exit swirl C_theta3
     C_theta2 = U * (1.0 - reaction) + 0.5 * delta_C_theta
     C_theta3 = U * (1.0 - reaction) - 0.5 * delta_C_theta
 
@@ -341,11 +391,35 @@ def solve_turbine_stage(
     T03 = T01 - delta_T0
     P03 = P01 * PR_stage
 
-    # Zweifel blade loading criterion: psi_Zweifel = 2 * (s/c) * cos^2(beta3) * (tan(beta2) - tan(beta3))
-    tan_b2 = math.tan(math.radians(beta2_deg))
-    tan_b3 = math.tan(math.radians(beta3_deg))
-    cos_b3 = math.cos(math.radians(beta3_deg))
-    zweifel = 2.0 * (1.0 / solidity) * (cos_b3 ** 2) * abs(tan_b2 - tan_b3)
+    # Zweifel blade loading criterion (exact, singularity-free)
+    cos_b3_sq = (C_a * C_a) / (W3 * W3) if W3 > 0 else 1.0
+    delta_tan_b = abs(delta_C_theta / C_a) if C_a > 0 else 0.0
+    zweifel = 2.0 * (1.0 / max(0.1, solidity)) * cos_b3_sq * delta_tan_b
+
+    ngv_exit_dict = {
+        "C": round(C2, 2),
+        "C_a": round(C_a, 2),
+        "Ca": round(C_a, 2),
+        "C_theta": round(C_theta2, 2),
+        "Ctheta": round(C_theta2, 2),
+        "alpha_deg": round(alpha2_deg, 2),
+        "W": round(W2, 2),
+        "W_theta": round(W_theta2, 2),
+        "beta_deg": round(beta2_deg, 2),
+        "U": round(U, 2),
+    }
+    rotor_exit_dict = {
+        "C": round(C3, 2),
+        "C_a": round(C_a, 2),
+        "Ca": round(C_a, 2),
+        "C_theta": round(C_theta3, 2),
+        "Ctheta": round(C_theta3, 2),
+        "alpha_deg": round(alpha3_deg, 2),
+        "W": round(W3, 2),
+        "W_theta": round(W_theta3, 2),
+        "beta_deg": round(beta3_deg, 2),
+        "U": round(U, 2),
+    }
 
     return {
         "U": round(U, 2),
@@ -353,28 +427,21 @@ def solve_turbine_stage(
         "phi": round(phi, 4),
         "reaction": round(reaction, 3),
         "delta_h0": round(delta_h0, 1),
+        "delta_h0_kJkg": round(delta_h0 / 1000.0, 2),
         "PR_stage": round(PR_stage, 4),
+        "expansion_ratio": round(1.0 / PR_stage, 4) if PR_stage > 0 else 0.0,
         "T01": round(T01, 1),
         "T03": round(T03, 1),
+        "P01": round(P01, 1),
+        "P03": round(P03, 1),
         "P01_kPa": round(P01 / 1000.0, 1),
         "P03_kPa": round(P03 / 1000.0, 1),
         "zweifel_coefficient": round(zweifel, 3),
+        "zweifel_coefficient_stator": round(zweifel, 3),
+        "stator_exit_triangle": ngv_exit_dict,
+        "rotor_exit_triangle": rotor_exit_dict,
         "velocity_triangles": {
-            "ngv_exit": {
-                "C": round(C2, 2),
-                "C_theta": round(C_theta2, 2),
-                "alpha_deg": round(alpha2_deg, 2),
-                "W": round(W2, 2),
-                "W_theta": round(W_theta2, 2),
-                "beta_deg": round(beta2_deg, 2),
-            },
-            "rotor_exit": {
-                "C": round(C3, 2),
-                "C_theta": round(C_theta3, 2),
-                "alpha_deg": round(alpha3_deg, 2),
-                "W": round(W3, 2),
-                "W_theta": round(W_theta3, 2),
-                "beta_deg": round(beta3_deg, 2),
-            }
+            "ngv_exit": ngv_exit_dict,
+            "rotor_exit": rotor_exit_dict,
         }
     }

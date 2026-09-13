@@ -219,38 +219,69 @@ def run_mission_simulation(
     breguet_range_km = (V_cruise / tsfc_per_s) * L_over_D_cruise * math.log(W_start_cr / W_end_cr) / 1000.0
     breguet_range_nm = breguet_range_km / 1.852
 
-    # Payload-Range Envelope (3 benchmark points)
+    # Payload-Range Envelope (3 standard benchmark points via Breguet Integration)
+    def calc_breguet_range(payload: float, fuel: float) -> float:
+        w_to = OEW + payload + fuel
+        # Allowances for ground ops, climb, descent, and 45-min reserve
+        allowance = min(fuel * 0.35, 2500.0)
+        fuel_cruise = max(0.0, fuel - allowance)
+        w_start = w_to - allowance * 0.4
+        w_end = max(OEW + payload + allowance * 0.6, w_start - fuel_cruise)
+        if w_start <= w_end or tsfc_per_s <= 0:
+            return 0.0
+        return (V_cruise / tsfc_per_s) * L_over_D_cruise * math.log(w_start / w_end) / 1.852 / 1000.0
+
     # Point 1: Max Payload
     p1_fuel = min(max_fuel, MTOW - OEW - max_payload)
-    p1_range_nm = cruise_distance_nm * (p1_fuel / max(1.0, total_trip_fuel_burned))
+    p1_range_nm = calc_breguet_range(max_payload, p1_fuel)
 
     # Point 2: Full Fuel
     p2_payload = max(0.0, MTOW - OEW - max_fuel)
-    p2_range_nm = cruise_distance_nm * (max_fuel / max(1.0, total_trip_fuel_burned))
+    p2_range_nm = calc_breguet_range(p2_payload, max_fuel)
 
     # Point 3: Ferry (Zero Payload, Full Fuel)
-    ferry_start_mass = OEW + max_fuel
-    ferry_end_mass = OEW + 1500.0 # reserve
-    ferry_range_nm = (V_cruise / tsfc_per_s) * L_over_D_cruise * math.log(ferry_start_mass / ferry_end_mass) / 1.852 / 1000.0
+    ferry_range_nm = calc_breguet_range(0.0, max_fuel)
 
     payload_range_curve = [
-        {"name": "Max Payload", "payload_kg": round(max_payload, 0), "range_nm": round(p1_range_nm, 0)},
-        {"name": "Max Fuel",    "payload_kg": round(p2_payload, 0), "range_nm": round(p2_range_nm, 0)},
-        {"name": "Ferry",       "payload_kg": 0.0,                   "range_nm": round(ferry_range_nm, 0)},
+        {"name": "Max Payload", "payload_kg": round(max_payload, 0), "range_nm": round(p1_range_nm, 0), "range_km": round(p1_range_nm * 1.852, 0)},
+        {"name": "Max Fuel",    "payload_kg": round(p2_payload, 0), "range_nm": round(p2_range_nm, 0), "range_km": round(p2_range_nm * 1.852, 0)},
+        {"name": "Ferry",       "payload_kg": 0.0,                   "range_nm": round(ferry_range_nm, 0), "range_km": round(ferry_range_nm * 1.852, 0)},
     ]
 
-    return {
-        "mission_summary": {
-            "total_distance_nm": round(total_dist_nm, 1),
-            "total_flight_time_min": round(total_time_min, 1),
-            "total_fuel_burned_kg": round(total_trip_fuel_burned, 1),
-            "fuel_remaining_kg": round(curr_fuel, 1),
-            "takeoff_weight_kg": round(takeoff_weight_kg, 1),
-            "landing_weight_kg": round(curr_mass, 1),
-            "reserve_fuel_kg": round(fuel_loiter, 1),
-            "breguet_cruise_range_nm": round(breguet_range_nm, 1),
-            "cruise_L_over_D": round(L_over_D_cruise, 2),
-        },
-        "payload_range_envelope": payload_range_curve,
-        "flight_profile": profile
+    cruise_tsfc = 18.0
+    for ph in profile:
+        if ph.get("phase") == "Cruise":
+            cruise_tsfc = ph.get("TSFC_g_kNs", 18.0)
+            break
+
+    summary_dict = {
+        "total_distance_nm": round(total_dist_nm, 1),
+        "total_distance_km": round(total_dist_nm * 1.852, 1),
+        "total_flight_time_min": round(total_time_min, 1),
+        "total_flight_time_hr": round(total_time_min / 60.0, 2),
+        "total_fuel_burned_kg": round(total_trip_fuel_burned, 1),
+        "total_fuel_burn_kg": round(total_trip_fuel_burned, 1),
+        "block_fuel_kg": round(total_trip_fuel_burned - fuel_loiter, 1),
+        "fuel_remaining_kg": round(curr_fuel, 1),
+        "takeoff_weight_kg": round(takeoff_weight_kg, 1),
+        "landing_weight_kg": round(curr_mass, 1),
+        "reserve_fuel_kg": round(fuel_loiter, 1),
+        "average_cruise_TSFC": round(cruise_tsfc, 2),
+        "breguet_cruise_range_km": round(breguet_range_nm * 1.852, 1),
+        "breguet_cruise_range_nm": round(breguet_range_nm, 1),
+        "cruise_L_over_D": round(L_over_D_cruise, 2),
     }
+
+    return {
+        "mission_summary": summary_dict,
+        "summary": summary_dict,  # Frontend compatibility alias
+        "payload_range_envelope": payload_range_curve,
+        "current_mission_point": {
+            "range_km": round(cruise_distance_nm * 1.852, 1),
+            "range_nm": round(cruise_distance_nm, 1),
+            "payload_kg": round(payload_kg, 1),
+        },
+        "flight_profile": profile,
+        "phases": profile,        # Frontend compatibility alias
+    }
+

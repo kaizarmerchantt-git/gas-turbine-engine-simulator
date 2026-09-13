@@ -205,11 +205,14 @@ def _calc_turbofan_raw(
                 T_18 = T0_13 - eng_perf["eta_noz_byp"] * T0_13 * (
                     1.0 - 1.0 / (p0_13 / p_amb) ** ((gamma_b - 1.0) / gamma_b)
                 )
-                V_18 = np.sqrt(2.0 * gas[13].cp * (T0_13 - T_18))
-                rho_18 = p_18 / (R_b * T_18)
-                A18_calc = current_mdot_b / (rho_18 * V_18)
+                delta_T = max(T0_13 - T_18, 0.0)
+                V_18 = np.sqrt(2.0 * gas[13].cp * delta_T)
+                rho_18 = p_18 / (R_b * T_18) if (R_b * T_18) > 0 else 1.0
+                denom = rho_18 * V_18
+                A18_calc = (current_mdot_b / denom) if denom > 1e-6 else 0.0
                 F_b_spec = V_18 - V_i
-                M[18] = V_18 / np.sqrt(gamma_b * R_b * T_18)
+                a_18 = np.sqrt(gamma_b * R_b * T_18) if (gamma_b * R_b * T_18) > 0 else 1.0
+                M[18] = V_18 / a_18
             
             gas[18].TP = T_18, p_18
             mdot_noz_b = current_mdot_b
@@ -300,6 +303,7 @@ def _calc_turbofan_raw(
         p0_5 = get_p(gas[5].P, get_gamma(gas[5]), M[5])
         if p0_5 <= p_amb:
             choked_c, mdot_noz_c, M[8], F_c_spec = False, current_mdot_c * 0.9, 0.0, 0.0
+            gas[8].TP = gas[5].T, p_amb
         else:
             choked_c, mdot_noz_c, M[8], F_c_spec = calc_nozzle(
                 gas[5], M[5], eng_perf["eta_noz_core"],
@@ -307,14 +311,16 @@ def _calc_turbofan_raw(
             )
 
         # ── Convergence check ───────────────────────────────────────────────
-        err_c = abs(mdot_noz_c - current_mdot_c)
+        _far_val = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
+        mdot_c_target = mdot_noz_c / (1.0 + (_far_val / eng_perf["eta_b"]))
+        err_c = abs(mdot_noz_c - mdot_turb)
         
         if err_c < tol:
             converged = True
         else:
             mdot_iter += 1
             alpha = 0.3
-            current_mdot_c = (1.0 - alpha) * current_mdot_c + alpha * mdot_noz_c
+            current_mdot_c = (1.0 - alpha) * current_mdot_c + alpha * mdot_c_target
 
 
     # ── Post-loop performance metrics ───────────────────────────────────────

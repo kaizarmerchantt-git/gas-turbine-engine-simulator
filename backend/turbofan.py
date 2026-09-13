@@ -188,8 +188,10 @@ def interp_altMNPC(
     pc_idx = col_names.index("PC")
     temp_pts = []
     for arr in interp_pts:
-        y2 = arr[np.where(arr[:, pc_idx] == PC_high)]
-        y1 = arr[np.where(arr[:, pc_idx] == PC_low)]
+        match_high = np.where(np.isclose(arr[:, pc_idx], PC_high, atol=1e-5))[0]
+        match_low  = np.where(np.isclose(arr[:, pc_idx], PC_low, atol=1e-5))[0]
+        y2 = arr[match_high] if len(match_high) > 0 else arr[[np.argmin(np.abs(arr[:, pc_idx] - PC_high))]]
+        y1 = arr[match_low]  if len(match_low) > 0  else arr[[np.argmin(np.abs(arr[:, pc_idx] - PC_low))]]
         temp_pts.append(_linear_interp(PC, PC_high, PC_low, y2, y1))
 
     # ── Interpolate Mach ────────────────────────────────────────────────────

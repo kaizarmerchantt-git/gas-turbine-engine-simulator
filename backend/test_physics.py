@@ -5,6 +5,9 @@ for the Gas Turbine Engine Simulator.
 """
 
 import math
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 import pytest
 import numpy as np
 from fastapi.testclient import TestClient

@@ -118,7 +118,7 @@ def test_turboprop_single_physics():
     assert res["F_prop_kN"] > 0.0
     assert res["F_jet_kN"] > 0.0
     assert res["F_total_kN"] > res["F_prop_kN"]
-    assert 0.02 <= res["PSFC_kg_kWh"] <= 0.10
+    assert 0.20 <= res["PSFC_kg_kWh"] <= 0.45
 
     # Verify station thermodynamics order: T04 > T045 > T05 > T8
     st = res["stations"]
@@ -245,6 +245,45 @@ def test_all_new_fastapi_endpoints():
 
     r = client.post("/api/surrogate/predict", json=sg_defs)
     assert r.status_code == 200
+    pred_data = r.json()
+    assert "thrust_kN" in pred_data
+    assert "tsfc" in pred_data
 
+    # 2D grid generation
     r = client.post("/api/surrogate/surface", json={"x_param": "CPR", "y_param": "TIT_K", "grid_res": 8})
     assert r.status_code == 200
+    assert "thrust_grid_kN" in r.json()
+
+    # 1D response curve generation (frontend format)
+    r = client.post("/api/surrogate/surface", json={
+        "x_param": "throttle",
+        "y_param": "thrust_kN",
+        "x_min": 0.3,
+        "x_max": 1.0,
+        "n_points": 20,
+        "fixed_params": {"altitude_m": 5000.0, "mach": 0.50, "throttle": 0.80, "cpr": 20.0, "tit_K": 1500.0}
+    })
+    assert r.status_code == 200
+    curve_data = r.json()
+    assert "points" in curve_data
+    assert len(curve_data["points"]) == 20
+    assert "x" in curve_data["points"][0] and "y" in curve_data["points"][0]
+
+    # Verify Turboprop frontend compatibility keys
+    r_tp = client.post("/api/turboprop/single", json={"altitude_m": 4572.0, "mach": 0.40, "mdot_core": 3.8, "pi_c": 16.0, "T04": 1400.0})
+    assert r_tp.status_code == 200
+    tp_data = r_tp.json()
+    assert "P_shaft_shp" in tp_data
+    assert "propeller_thrust_N" in tp_data
+    assert "total_thrust_N" in tp_data
+
+    # Verify Mission summary and payload-range keys
+    r_ms = client.post("/api/mission/simulate", json={"aircraft_type": "generic_twin", "cruise_alt_m": 10668.0, "cruise_dist_km": 2500.0})
+    assert r_ms.status_code == 200
+    ms_data = r_ms.json()
+    assert "summary" in ms_data
+    assert "block_fuel_kg" in ms_data["summary"]
+    assert "total_flight_time_hr" in ms_data["summary"]
+    assert "current_mission_point" in ms_data
+    assert "range_km" in ms_data["current_mission_point"]
+
