@@ -123,6 +123,22 @@ class PhysicsTurbofanParam(BaseModel):
     A8:           float = Field(DEFAULT_TF_PARAM["A8"])
     BPR:          float = Field(DEFAULT_TF_PARAM["BPR"])
 
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "fan_stages" in d and "fan_n_stages" not in d:
+                d["fan_n_stages"] = d["fan_stages"]
+            if "hpc_stages" in d and "hpc_n_stages" not in d:
+                d["hpc_n_stages"] = d["hpc_stages"]
+            if "hpt_stages" in d and "hpt_n_stages" not in d:
+                d["hpt_n_stages"] = d["hpt_stages"]
+            if "lpt_stages" in d and "lpt_n_stages" not in d:
+                d["lpt_n_stages"] = d["lpt_stages"]
+            return d
+        return data
+
 class PhysicsTurbofanPerf(BaseModel):
     eta_i:        float = Field(DEFAULT_TF_PERF["eta_i"],        gt=0.0, le=1.0)
     FPR:          float = Field(DEFAULT_TF_PERF["FPR"],          gt=1.0)
