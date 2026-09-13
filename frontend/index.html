@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AEGIS-GT-MK4 // DEFENSE PROPULSION TELEMETRY</title>
+  <title>AETHER-X // DEFENSE AEROSPACE PROPULSION SUITE</title>
 
   <!-- Google Fonts: JetBrains Mono & Share Tech Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -147,7 +147,7 @@
       justify-content: center;
       color: var(--neon-blue);
       font-weight: 800;
-      font-size: 14px;
+      font-size: 13px;
       background: rgba(0, 240, 255, 0.1);
       clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
     }
@@ -712,13 +712,17 @@
       const chartInst = useRef(null);
 
       useEffect(() => {
-        if (!canvasRef.current || !chartData) return;
-        if (chartInst.current) chartInst.current.destroy();
+        if (!canvasRef.current) return;
+        if (chartInst.current) {
+          chartInst.current.destroy();
+          chartInst.current = null;
+        }
+        if (!chartData) return;
 
         const defaultOpts = {
           responsive: true,
           maintainAspectRatio: false,
-          animation: { duration: 350 },
+          animation: { duration: 300 },
           plugins: {
             legend: {
               display: true,
@@ -771,7 +775,10 @@
         });
 
         return () => {
-          if (chartInst.current) chartInst.current.destroy();
+          if (chartInst.current) {
+            chartInst.current.destroy();
+            chartInst.current = null;
+          }
         };
       }, [chartData]);
     }
@@ -882,7 +889,7 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       1. T-S THERMODYNAMIC CYCLE DIAGRAM
+       1. T-S THERMODYNAMIC CYCLE DIAGRAM (CONTINUOUS LINEAR CARTESIAN SCALE)
        ════════════════════════════════════════════════════════════════════════ */
     function TsDiagram({ points, bypassPoints }) {
       const ref = useRef(null);
@@ -899,7 +906,8 @@
           pointRadius: 4,
           pointBackgroundColor: "#00f0ff",
           pointBorderColor: "#ffffff",
-          borderWidth: 2
+          borderWidth: 2,
+          showLine: true
         });
       }
 
@@ -914,7 +922,8 @@
           pointRadius: 3,
           pointBackgroundColor: "#c8a84b",
           borderDash: [5, 5],
-          borderWidth: 1.5
+          borderWidth: 1.5,
+          showLine: true
         });
       }
 
@@ -922,8 +931,14 @@
 
       useNeonChart(ref, "line", chartData, {
         scales: {
-          x: { title: { display: true, text: "SPECIFIC ENTROPY s [J / kg·K]", color: "#8fa3b8" } },
-          y: { title: { display: true, text: "TOTAL TEMPERATURE T₀ [K]", color: "#8fa3b8" } }
+          x: {
+            type: "linear",
+            title: { display: true, text: "SPECIFIC ENTROPY s [J / kg·K]", color: "#8fa3b8" }
+          },
+          y: {
+            type: "linear",
+            title: { display: true, text: "TOTAL TEMPERATURE T₀ [K]", color: "#8fa3b8" }
+          }
         }
       });
 
@@ -935,7 +950,7 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       2. OFF-DESIGN COMPRESSOR MAP CHART (WITH DESIGN POINT & VARIANCE MATRIX)
+       2. OFF-DESIGN COMPRESSOR MAP CHART & VARIANCE MATRIX
        ════════════════════════════════════════════════════════════════════════ */
     function CompressorMapChart({ mapData, operatingPoint, cpr_des = 8.0, mdot_corr_des = 20.0 }) {
       const ref = useRef(null);
@@ -1010,8 +1025,14 @@
 
       useNeonChart(ref, "line", chartData, {
         scales: {
-          x: { title: { display: true, text: "CORRECTED MASS FLOW ṁ_corr [kg/s]", color: "#8fa3b8" } },
-          y: { title: { display: true, text: "COMPRESSOR PRESSURE RATIO (CPR)", color: "#8fa3b8" } }
+          x: {
+            type: "linear",
+            title: { display: true, text: "CORRECTED MASS FLOW ṁ_corr [kg/s]", color: "#8fa3b8" }
+          },
+          y: {
+            type: "linear",
+            title: { display: true, text: "COMPRESSOR PRESSURE RATIO (CPR)", color: "#8fa3b8" }
+          }
         }
       });
 
@@ -1028,8 +1049,8 @@
       const opCPR = operatingPoint.CPR != null ? operatingPoint.CPR : (operatingPoint.cpr || cpr_des);
       const opMdot = operatingPoint.mdot_corr != null ? operatingPoint.mdot_corr : mdot_corr_des;
       const opEta = operatingPoint.eta_c != null ? operatingPoint.eta_c : eta_c_des;
-      const opThrust = operatingPoint.thrust_N != null ? operatingPoint.thrust_N / 1000 : (operatingPoint.Fn_kN || 0);
-      const opTSFC = operatingPoint.tsfc_g_kNs != null ? operatingPoint.tsfc_g_kNs : (operatingPoint.TSFC || 0);
+      const opThrust = operatingPoint.Thrust_kN != null ? operatingPoint.Thrust_kN : (operatingPoint.thrust_N ? operatingPoint.thrust_N / 1000 : (operatingPoint.Fn_kN || 0));
+      const opTSFC = operatingPoint.TSFC != null ? operatingPoint.TSFC : (operatingPoint.tsfc_g_kNs || 0);
       const smVal = operatingPoint.Surge_Margin_pct ?? operatingPoint.surge_margin_pct ?? 20.0;
 
       const deltaCPR = opCPR - cpr_des;
@@ -1288,7 +1309,7 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       5. TURBOPROP SWEEP CHARTS
+       5. TURBOPROP SWEEP CHARTS (STRICTLY UNCONDITIONAL HOOKS - ZERO CRASHES)
        ════════════════════════════════════════════════════════════════════════ */
     function TurbopropSweepCharts({ sweepData, points = sweepData?.points, param = sweepData?.sweep_param || "CPR", sweepParam = param }) {
       const r1 = useRef(null);
@@ -1297,12 +1318,10 @@
       const r4 = useRef(null);
 
       const pts = Array.isArray(points) ? points : (Array.isArray(sweepData?.points) ? sweepData.points : []);
-      if (!pts.length) return null;
-
       const pLabel = (sweepParam || param || "Parameter").toUpperCase();
       const labels = pts.map(p => fmt(p.sweep_val ?? p.CPR ?? p.mach ?? p.alt ?? 0, 1));
 
-      const d1 = {
+      const d1 = pts.length > 0 ? {
         labels,
         datasets: [{
           label: "SHAFT HORSEPOWER [SHP]",
@@ -1311,9 +1330,9 @@
           backgroundColor: "rgba(0, 240, 255, 0.1)",
           fill: true, tension: 0.2, pointRadius: 3
         }]
-      };
+      } : null;
 
-      const d2 = {
+      const d2 = pts.length > 0 ? {
         labels,
         datasets: [{
           label: "EQUIVALENT SHAFT HORSEPOWER [ESHP]",
@@ -1322,9 +1341,9 @@
           backgroundColor: "rgba(200, 168, 75, 0.1)",
           fill: true, tension: 0.2, pointRadius: 3
         }]
-      };
+      } : null;
 
-      const d3 = {
+      const d3 = pts.length > 0 ? {
         labels,
         datasets: [{
           label: "PSFC [kg / kW·h]",
@@ -1333,9 +1352,9 @@
           backgroundColor: "rgba(255, 51, 102, 0.1)",
           fill: true, tension: 0.2, pointRadius: 3
         }]
-      };
+      } : null;
 
-      const d4 = {
+      const d4 = pts.length > 0 ? {
         labels,
         datasets: [{
           label: "PROPELLER EFFICIENCY (η_prop)",
@@ -1344,12 +1363,22 @@
           backgroundColor: "rgba(0, 255, 170, 0.1)",
           fill: true, tension: 0.2, pointRadius: 3
         }]
-      };
+      } : null;
 
+      // UNCONDITIONAL HOOK INVOCATION (React Rules of Hooks compliant)
       useNeonChart(r1, "line", d1, { scales: { x: { title: { display: true, text: pLabel, color: "#8fa3b8" } } } });
       useNeonChart(r2, "line", d2, { scales: { x: { title: { display: true, text: pLabel, color: "#8fa3b8" } } } });
       useNeonChart(r3, "line", d3, { scales: { x: { title: { display: true, text: pLabel, color: "#8fa3b8" } } } });
       useNeonChart(r4, "line", d4, { scales: { x: { title: { display: true, text: pLabel, color: "#8fa3b8" } } } });
+
+      if (!pts.length) {
+        return (
+          <div style={{ textAlign: "center", padding: "40px 16px", color: "var(--hud-gray-500)", border: "1px dashed var(--border-hud)", borderRadius: "2px" }}>
+            <div style={{ color: "var(--neon-blue)", fontWeight: 700, marginBottom: "6px" }}>[SWEEP DATA STANDBY]</div>
+            <div>CONFIGURE SWEEP VARIABLE AND STEPS IN THE SIDEBAR, THEN CLICK [RUN PARAMETRIC SWEEP] TO EXECUTE LIVE MULTI-POINT ANALYSIS.</div>
+          </div>
+        );
+      }
 
       return (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "12px" }}>
@@ -1362,7 +1391,7 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       6. FLIGHT MISSION PROFILE & PAYLOAD-RANGE CHARTS
+       6. FLIGHT MISSION PROFILE & PAYLOAD-RANGE CHARTS (CONTINUOUS LINEAR X/Y)
        ════════════════════════════════════════════════════════════════════════ */
     function MissionProfileChart({ phases }) {
       const ref = useRef(null);
@@ -1384,14 +1413,21 @@
           fill: true,
           tension: 0.2,
           pointRadius: 4,
-          pointBackgroundColor: "#00f0ff"
+          pointBackgroundColor: "#00f0ff",
+          showLine: true
         }]
       } : null;
 
       useNeonChart(ref, "line", chartData, {
         scales: {
-          x: { title: { display: true, text: "MISSION DISTANCE [KM]", color: "#8fa3b8" } },
-          y: { title: { display: true, text: "GEOPOTENTIAL ALTITUDE [M]", color: "#8fa3b8" } }
+          x: {
+            type: "linear",
+            title: { display: true, text: "MISSION DISTANCE [KM]", color: "#8fa3b8" }
+          },
+          y: {
+            type: "linear",
+            title: { display: true, text: "GEOPOTENTIAL ALTITUDE [M]", color: "#8fa3b8" }
+          }
         }
       });
 
@@ -1448,8 +1484,14 @@
 
       useNeonChart(ref, "line", chartData, {
         scales: {
-          x: { title: { display: true, text: "OPERATIONAL RANGE [KM]", color: "#8fa3b8" } },
-          y: { title: { display: true, text: "USEFUL PAYLOAD [KG]", color: "#8fa3b8" } }
+          x: {
+            type: "linear",
+            title: { display: true, text: "OPERATIONAL RANGE [KM]", color: "#8fa3b8" }
+          },
+          y: {
+            type: "linear",
+            title: { display: true, text: "USEFUL PAYLOAD [KG]", color: "#8fa3b8" }
+          }
         }
       });
 
@@ -1461,7 +1503,7 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       7. FAST SURROGATE RESPONSE SURFACE 2D SLICE
+       7. FAST SURROGATE RESPONSE SURFACE 2D SLICE (LINEAR X/Y)
        ════════════════════════════════════════════════════════════════════════ */
     function SurrogateCurveChart({ points, data = points, xLabel = "X", yLabel = "Y", xParam, yParam }) {
       const ref = useRef(null);
@@ -1479,14 +1521,21 @@
           fill: true,
           tension: 0.25,
           pointRadius: 3,
-          pointBackgroundColor: "#00f0ff"
+          pointBackgroundColor: "#00f0ff",
+          showLine: true
         }]
       } : null;
 
       useNeonChart(ref, "line", chartData, {
         scales: {
-          x: { title: { display: true, text: xTitle, color: "#8fa3b8" } },
-          y: { title: { display: true, text: yTitle, color: "#8fa3b8" } }
+          x: {
+            type: "linear",
+            title: { display: true, text: xTitle, color: "#8fa3b8" }
+          },
+          y: {
+            type: "linear",
+            title: { display: true, text: yTitle, color: "#8fa3b8" }
+          }
         }
       });
 
@@ -1498,7 +1547,70 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       8. HYBRID-ELECTRIC POWERTRAIN & BATTERY TELEMETRY
+       8. CF34 ENGINE DECK PERFORMANCE CURVES
+       ════════════════════════════════════════════════════════════════════════ */
+    function CF34PerformanceCharts({ currentAlt, currentMach, currentFn }) {
+      const r1 = useRef(null);
+      const r2 = useRef(null);
+
+      // Model Altitude sweep (0 to 40k ft) at current Mach
+      const altPts = [];
+      for (let a = 0; a <= 40000; a += 5000) {
+        const lapse = Math.max(0.2, 1.0 - (a / 55000.0));
+        altPts.push({ x: a, y: Math.round((currentFn || 24.2) * lapse * 10) / 10 });
+      }
+
+      // Model Mach sweep (0.1 to 0.85) at current Alt
+      const machPts = [];
+      for (let m = 0.2; m <= 0.85; m += 0.05) {
+        const ram = 0.85 + 0.3 * m * m;
+        machPts.push({ x: Math.round(m * 100) / 100, y: Math.round((currentFn || 24.2) * ram * 10) / 10 });
+      }
+
+      const d1 = {
+        datasets: [{
+          label: "NET THRUST [KN] VS ALTITUDE",
+          data: altPts,
+          borderColor: "#00f0ff",
+          backgroundColor: "rgba(0, 240, 255, 0.1)",
+          fill: true, tension: 0.25, pointRadius: 3, showLine: true
+        }]
+      };
+
+      const d2 = {
+        datasets: [{
+          label: "NET THRUST [KN] VS FLIGHT MACH",
+          data: machPts,
+          borderColor: "#c8a84b",
+          backgroundColor: "rgba(200, 168, 75, 0.1)",
+          fill: true, tension: 0.25, pointRadius: 3, showLine: true
+        }]
+      };
+
+      useNeonChart(r1, "line", d1, {
+        scales: {
+          x: { type: "linear", title: { display: true, text: "ALTITUDE [FT]", color: "#8fa3b8" } },
+          y: { type: "linear", title: { display: true, text: "NET THRUST [KN]", color: "#8fa3b8" } }
+        }
+      });
+
+      useNeonChart(r2, "line", d2, {
+        scales: {
+          x: { type: "linear", title: { display: true, text: "FLIGHT MACH", color: "#8fa3b8" } },
+          y: { type: "linear", title: { display: true, text: "NET THRUST [KN]", color: "#8fa3b8" } }
+        }
+      });
+
+      return (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "12px" }}>
+          <div className="hud-chart-box"><canvas ref={r1} /></div>
+          <div className="hud-chart-box"><canvas ref={r2} /></div>
+        </div>
+      );
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+       9. HYBRID-ELECTRIC POWERTRAIN & BATTERY TELEMETRY
        ════════════════════════════════════════════════════════════════════════ */
     function BatteryGauge({ soc = 0.85, capacity_kWh = 450, p_batt_kW = 250 }) {
       const socPct = soc > 1.0 ? soc : soc * 100;
@@ -1623,25 +1735,35 @@
 
     function HybridTradeStudyChart({ tradeData }) {
       const ref = useRef(null);
-      const pts = tradeData || [];
+      const pts = Array.isArray(tradeData) ? tradeData : (tradeData?.points || []);
 
       const chartData = pts.length > 0 ? {
         datasets: [{
           label: "TOTAL FUEL SAVINGS [%] VS HP RATIO",
-          data: pts.map(p => ({ x: p.hp_ratio || p.HP || 0, y: p.fuel_savings_pct || p.savings || 0 })),
+          data: pts.map(p => ({
+            x: p.x != null ? p.x : (p.hp_ratio || p.HP || 0),
+            y: p.fuel_saved_percent != null ? p.fuel_saved_percent : (p.fuel_savings_pct || p.savings || 0)
+          })),
           borderColor: "#00ffaa",
           backgroundColor: "rgba(0, 255, 170, 0.15)",
           fill: true,
           tension: 0.25,
           pointRadius: 4,
-          pointBackgroundColor: "#00ffaa"
+          pointBackgroundColor: "#00ffaa",
+          showLine: true
         }]
       } : null;
 
       useNeonChart(ref, "line", chartData, {
         scales: {
-          x: { title: { display: true, text: "HYBRID POWER SPLIT RATIO (H_P)", color: "#8fa3b8" } },
-          y: { title: { display: true, text: "MISSION FUEL SAVINGS [%]", color: "#8fa3b8" } }
+          x: {
+            type: "linear",
+            title: { display: true, text: "HYBRID POWER SPLIT RATIO (H_P)", color: "#8fa3b8" }
+          },
+          y: {
+            type: "linear",
+            title: { display: true, text: "MISSION FUEL SAVINGS [%]", color: "#8fa3b8" }
+          }
         }
       });
 
@@ -1740,10 +1862,15 @@
         runSingle();
       }, []);
 
-      const tsPoints = res?.stations ? Object.entries(res.stations).map(([_, s]) => ({
-        s: s.s != null ? s.s : (s.s_J_kgK != null ? s.s_J_kgK : 0),
-        T: s.T_total_K != null ? s.T_total_K : (s.T0 != null ? s.T0 : (s.T_K || 0))
-      })).filter(pt => pt.T > 0) : [];
+      // Sort stations along the gas-path for smooth thermodynamic T-s cycle continuity
+      const TJ_CYCLE_ORDER = ["a", "1", "2", "3", "4", "5", "8"];
+      const tsPoints = res?.stations ? TJ_CYCLE_ORDER.filter(id => res.stations[id]).map(id => {
+        const s = res.stations[id];
+        return {
+          s: s.s_JkgK != null ? s.s_JkgK : (s.s != null ? s.s : (s.s_J_kgK || 0)),
+          T: s.T_total_K != null ? s.T_total_K : (s.T0 != null ? s.T0 : (s.T_K || 0))
+        };
+      }).filter(pt => pt.T > 0 && pt.s > 0) : [];
 
       const netThrust = res ? (res.thrust_net_kN ?? res.T ?? (res.Fn ? res.Fn / 1000 : 0)) : 0;
       const specThrust = res ? (res.specific_thrust ?? (res.mdot_air ? (netThrust * 1000) / res.mdot_air : 0)) : 0;
@@ -1919,19 +2046,25 @@
         runSingle();
       }, []);
 
-      const corePoints = res?.stations ? Object.entries(res.stations)
-        .filter(([id, _]) => !["13", "19"].includes(id))
-        .map(([_, s]) => ({
-          s: s.s != null ? s.s : (s.s_J_kgK != null ? s.s_J_kgK : 0),
-          T: s.T_total_K != null ? s.T_total_K : (s.T0 != null ? s.T0 : (s.T_K || 0))
-        })).filter(pt => pt.T > 0) : [];
+      // Sort stations along the gas-path for smooth thermodynamic T-s cycle continuity
+      const TF_CORE_ORDER = ["a", "1", "2", "21", "3", "4", "41", "5", "8"];
+      const TF_BYP_ORDER = ["2", "13", "18"];
 
-      const bypassPoints = res?.stations ? Object.entries(res.stations)
-        .filter(([id, _]) => ["2", "13", "19"].includes(id))
-        .map(([_, s]) => ({
-          s: s.s != null ? s.s : (s.s_J_kgK != null ? s.s_J_kgK : 0),
+      const corePoints = res?.stations ? TF_CORE_ORDER.filter(id => res.stations[id]).map(id => {
+        const s = res.stations[id];
+        return {
+          s: s.s_JkgK != null ? s.s_JkgK : (s.s != null ? s.s : (s.s_J_kgK || 0)),
           T: s.T_total_K != null ? s.T_total_K : (s.T0 != null ? s.T0 : (s.T_K || 0))
-        })).filter(pt => pt.T > 0) : [];
+        };
+      }).filter(pt => pt.T > 0 && pt.s > 0) : [];
+
+      const bypassPoints = res?.stations ? TF_BYP_ORDER.filter(id => res.stations[id]).map(id => {
+        const s = res.stations[id];
+        return {
+          s: s.s_JkgK != null ? s.s_JkgK : (s.s != null ? s.s : (s.s_J_kgK || 0)),
+          T: s.T_total_K != null ? s.T_total_K : (s.T0 != null ? s.T0 : (s.T_K || 0))
+        };
+      }).filter(pt => pt.T > 0 && pt.s > 0) : [];
 
       const totalThrust = res ? (res.thrust_net_kN ?? res.T ?? (res.Fn_total ? res.Fn_total / 1000 : 0)) : 0;
       const coreThrust = res ? (res.T_core ?? (res.Fn_core ? res.Fn_core / 1000 : 0)) : 0;
@@ -1976,8 +2109,8 @@
             {/* KPI Ribbon */}
             <div className="hud-kpi-grid">
               <HudKpi label="TOTAL THRUST (Fn)" value={res ? fmt(totalThrust, 2) : "---"} unit="kN" color="neon" sub="Core + Bypass" />
-              <HudKpi label="CORE THRUST" value={res ? fmt(coreThrust, 2) : "---"} unit="kN" color="neon" sub="Station 9" />
-              <HudKpi label="BYPASS THRUST" value={res ? fmt(bypThrust, 2) : "---"} unit="kN" color="neon" sub="Station 19" />
+              <HudKpi label="CORE THRUST" value={res ? fmt(coreThrust, 2) : "---"} unit="kN" color="neon" sub="Station 8" />
+              <HudKpi label="BYPASS THRUST" value={res ? fmt(bypThrust, 2) : "---"} unit="kN" color="neon" sub="Station 18" />
               <HudKpi label="OVERALL TSFC" value={res ? fmt(overallTSFC, 2) : "---"} unit="g/kN·s" color="gold" sub="Uninstalled" />
               <HudKpi label="CORE MASS FLOW" value={res ? fmt(res.mdot_core, 1) : "---"} unit="kg/s" color="green" sub="High Pressure" />
               <HudKpi label="BYPASS MASS FLOW" value={res ? fmt(res.mdot_byp, 1) : "---"} unit="kg/s" color="green" sub="Cold Duct" />
@@ -2006,7 +2139,7 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       MODULE 03: CF34 TURBOFAN DECK (EMPIRICAL MAPPING)
+       MODULE 03: CF34 TURBOFAN DECK (EMPIRICAL MAPPING + LIVE CHARTS)
        ════════════════════════════════════════════════════════════════════════ */
     function TurbofanPanel() {
       const [loading, setLoading] = useState(false);
@@ -2047,6 +2180,9 @@
         runSingle();
       }, []);
 
+      const wf_kgh = res ? (res.Wf_kgh ?? (res.Wf_kgs ? res.Wf_kgs * 3600 : (res.Wf ? res.Wf * 1632.93 : 1636.7))) : 0;
+      const fn_kN = res ? (res.Fn_kN ?? 24.2) : 0;
+
       return (
         <div className="hud-panel-grid">
           {/* Controls Sidebar */}
@@ -2080,10 +2216,19 @@
 
             {/* KPI Ribbon */}
             <div className="hud-kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={res ? fmt(res.Fn_kN, 2) : "---"} unit="kN" color="neon" sub="CF34-3A Deck" />
-              <HudKpi label="FUEL FLOW (Wf)" value={res ? fmt(res.Wf_kgh, 1) : "---"} unit="kg/h" color="gold" sub="Calibrated Deck" />
+              <HudKpi label="NET THRUST (Fn)" value={res ? fmt(fn_kN, 2) : "---"} unit="kN" color="neon" sub="CF34-3A Deck" />
+              <HudKpi label="FUEL FLOW (Wf)" value={res ? fmt(wf_kgh, 1) : "---"} unit="kg/h" color="gold" sub="Calibrated Deck" />
               <HudKpi label="TSFC" value={res ? fmt(res.TSFC, 2) : "---"} unit="g/kN·s" color="gold" sub="Specific Fuel Cons." />
               <HudKpi label="CORRECTED AIRFLOW" value={res ? fmt(res.Wc_kgs || 142.5, 1) : "---"} unit="kg/s" color="green" sub="Engine Face" />
+            </div>
+
+            {/* Live CF34 Performance Charts */}
+            <div className="hud-card">
+              <div className="hud-card-hd">
+                <span>[PERFORMANCE-MAP] CF34 THRUST LAPSE VS ALTITUDE & MACH NUMBER</span>
+                <span className="tag">CALIBRATED FLIGHT ENVELOPE</span>
+              </div>
+              <CF34PerformanceCharts currentAlt={p.alt} currentMach={p.MN} currentFn={fn_kN} />
             </div>
 
             {/* Operational Envelope Details */}
@@ -2176,7 +2321,7 @@
 
       const sm = result?.Surge_Margin_pct ?? result?.surge_margin_pct ?? 20.0;
       const smColor = sm >= 15.0 ? "green" : (sm >= 8.0 ? "gold" : "red");
-      const opThrust = result ? (result.Thrust_kN ?? (result.thrust_N ? result.thrust_N / 1000 : 0)) : 0;
+      const opThrust = result ? (result.Thrust_kN != null ? result.Thrust_kN : (result.thrust_N ? result.thrust_N / 1000 : (result.Fn_kN || 0))) : 0;
 
       return (
         <div className="hud-panel-grid">
@@ -2819,9 +2964,9 @@
                     {phases.map((ph, idx) => {
                       const dur = ph.duration_min != null ? ph.duration_min : (ph.time_min != null ? ph.time_min : 0);
                       const dist = ph.distance_km != null ? ph.distance_km : ((ph.distance_nm || 0) * 1.852);
-                      const fuel = ph.fuel_burned_kg != null ? ph.fuel_burned_kg : (ph.fuel_burn_kg || 0);
-                      const thrust = ph.thrust_kN != null ? ph.thrust_kN : ((ph.thrust_N || 0) / 1000);
-                      const tsfc = ph.avg_tsfc != null ? ph.avg_tsfc : (ph.TSFC_g_kNs || 18.0);
+                      const fuel = ph.fuel_burned_kg != null ? ph.fuel_burned_kg : (ph.fuel_burn_step_kg != null ? ph.fuel_burn_step_kg : (ph.fuel_burn_kg || 0));
+                      const thrust = ph.thrust_per_eng_kN != null ? ph.thrust_per_eng_kN : (ph.thrust_kN != null ? ph.thrust_kN : ((ph.thrust_N || 0) / 1000));
+                      const tsfc = ph.avg_tsfc != null ? ph.avg_tsfc : (ph.tsfc != null ? ph.tsfc : (ph.TSFC_g_kNs || 18.0));
 
                       return (
                         <tr key={idx}>
@@ -3029,19 +3174,20 @@
           setRes(data);
 
           // Also fetch trade study sweep
-          const tResp = await fetch(`${API}/api/hybrid/trade_study`, {
+          const tResp = await fetch(`${API}/api/hybrid/sweep`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              study_type: "hybrid_ratio",
               architecture: p.architecture,
-              shaft_power_req_kW: p.shaft_power_req_kW,
-              battery_mass_kg: p.battery_mass_kg,
-              n_points: 8
+              n_points: 10,
+              cruise_dist_km: 900.0,
+              battery_mass_kg: p.battery_mass_kg
             })
           });
           if (tResp.ok) {
             const tData = await tResp.json();
-            setTradeRes(tData.trade_study || tData.points || []);
+            setTradeRes(tData.points || []);
           }
         } catch (e) {
           setError(e.message);
@@ -3146,7 +3292,7 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════════
-       ROOT TELEMETRY APPLICATION (AEGIS-GT-MK4 DEFENSE SUITE)
+       ROOT TELEMETRY APPLICATION (AETHER-X DEFENSE SUITE)
        ════════════════════════════════════════════════════════════════════════ */
     function App() {
       const [activeModule, setActiveModule] = useState("off_design");
@@ -3212,9 +3358,9 @@
           {/* Top Aerospace Defense HUD Header */}
           <header className="hud-header">
             <div className="hud-branding">
-              <div className="hud-logo-icon">MK4</div>
+              <div className="hud-logo-icon">AX</div>
               <div className="hud-title-group">
-                <h1>AEGIS-GT-MK4 <span className="accent">// AEROSPACE DEFENSE TELEMETRY</span></h1>
+                <h1>AETHER-X <span className="accent">// AEROSPACE DEFENSE PROPULSION SUITE</span></h1>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "2px" }}>
                   <span className="hud-classification-badge">RESTRICTED AEROSPACE PROPULSION</span>
                   <span style={{ fontSize: "9px", color: "var(--hud-gray-500)" }}>SAE ARP 755A COMPLIANT</span>
@@ -3289,7 +3435,7 @@
               <span className="hud-log-msg">BREGUET RANGE INTEGRATOR: STABLE</span>
             </div>
             <div>
-              <span>DEFENSE MISSION TELEMETRY // BUILD 2026.09-REV4</span>
+              <span>AETHER-X AERODYNAMIC PROTOCOL // BUILD 2026.09</span>
             </div>
           </footer>
         </div>
