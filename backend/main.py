@@ -23,6 +23,7 @@ from meanline import solve_compressor_stage, solve_multistage_compressor_meanlin
 from turboprop import calc_turboprop_performance, run_turboprop_sweep
 from mission import run_mission_simulation
 from surrogate import GLOBAL_SURROGATE
+from hybrid import evaluate_single_hybrid_point, run_hybrid_mission_simulation, run_hybrid_trade_study, DEFAULT_POWERTRAIN
 
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -364,6 +365,39 @@ class SurrogateSurfaceRequest(BaseModel):
     grid_res:       int   = Field(15, ge=5, le=30)
 
 
+# Hybrid Electric Schemas (Extension 5)
+class HybridSingleRequest(BaseModel):
+    architecture:          Literal["parallel", "series", "turboelectric"] = "parallel"
+    shaft_power_req_kW:    float = Field(2000.0, ge=100.0, le=20000.0)
+    hybrid_power_ratio_HP: float = Field(0.25, ge=0.0, le=1.0)
+    battery_mass_kg:       float = Field(1200.0, ge=0.0, le=15000.0)
+    battery_soc:           float = Field(0.85, ge=0.05, le=1.0)
+    turbogen_rated_kW:     Optional[float] = Field(None, ge=100.0, le=20000.0)
+
+
+class HybridMissionRequest(BaseModel):
+    architecture:          Literal["parallel", "series", "turboelectric"] = "parallel"
+    cruise_alt_m:          float = Field(9144.0, ge=3000.0, le=13000.0)
+    cruise_mach:           float = Field(0.72, ge=0.30, le=0.88)
+    cruise_dist_km:        float = Field(900.0, ge=100.0, le=3500.0)
+    payload_kg:            float = Field(6500.0, ge=500.0, le=15000.0)
+    battery_mass_kg:       float = Field(1800.0, ge=0.0, le=10000.0)
+    specific_energy_Wh_kg: float = Field(300.0, ge=150.0, le=800.0)
+    takeoff_hybrid_ratio:  float = Field(0.35, ge=0.0, le=0.70)
+    climb_hybrid_ratio:    float = Field(0.20, ge=0.0, le=0.50)
+    cruise_hybrid_ratio:   float = Field(0.05, ge=0.0, le=0.30)
+    descent_hybrid_ratio:  float = Field(0.0, ge=0.0, le=0.20)
+
+
+class HybridSweepRequest(BaseModel):
+    study_type:            Literal["hybrid_ratio", "specific_energy", "distance"] = "hybrid_ratio"
+    architecture:          Literal["parallel", "series", "turboelectric"] = "parallel"
+    n_points:              int   = Field(10, ge=4, le=25)
+    cruise_dist_km:        float = Field(900.0, ge=100.0, le=3500.0)
+    specific_energy_Wh_kg: float = Field(300.0, ge=150.0, le=800.0)
+    battery_mass_kg:       float = Field(1800.0, ge=0.0, le=10000.0)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Health check
 # ─────────────────────────────────────────────────────────────────────────────
@@ -380,7 +414,8 @@ def root():
             "meanline",
             "turboprop",
             "mission",
-            "surrogate"
+            "surrogate",
+            "hybrid_electric"
         ],
         "docs":   "/docs",
     }
@@ -1167,6 +1202,76 @@ def surrogate_surface(req: SurrogateSurfaceRequest):
     """Rapid (< 5 ms) 2D grid response surface generation for real-time 3D contour exploration."""
     try:
         res = GLOBAL_SURROGATE.generate_2d_surface(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hybrid Electric Propulsion Endpoints (Extension 5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/hybrid/defaults")
+def hybrid_defaults():
+    """Return default parameters for hybrid electric powertrain and aircraft simulation."""
+    return {
+        "architecture": "parallel",
+        "shaft_power_req_kW": 2000.0,
+        "hybrid_power_ratio_HP": 0.25,
+        "battery_mass_kg": 1200.0,
+        "battery_soc": 0.85,
+        "turbogen_rated_kW": 1500.0,
+        "mission": {
+            "cruise_alt_m": 9144.0,
+            "cruise_mach": 0.72,
+            "cruise_dist_km": 900.0,
+            "payload_kg": 6500.0,
+            "battery_mass_kg": 1800.0,
+            "specific_energy_Wh_kg": 300.0,
+            "takeoff_hybrid_ratio": 0.35,
+            "climb_hybrid_ratio": 0.20,
+            "cruise_hybrid_ratio": 0.05,
+            "descent_hybrid_ratio": 0.0,
+        },
+        "powertrain": DEFAULT_POWERTRAIN,
+    }
+
+
+@app.post("/api/hybrid/single")
+def hybrid_single(req: HybridSingleRequest):
+    """Evaluate instantaneous hybrid electric powertrain states (parallel, series, or turboelectric)."""
+    try:
+        res = evaluate_single_hybrid_point(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/hybrid/mission")
+def hybrid_mission(req: HybridMissionRequest):
+    """Simulate a 6-phase hybrid flight mission with battery SoC tracking and conventional comparison."""
+    try:
+        res = run_hybrid_mission_simulation(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/hybrid/sweep")
+def hybrid_sweep(req: HybridSweepRequest):
+    """Run parametric trade studies (hybrid ratio, battery specific energy, or stage length)."""
+    try:
+        kwargs = {
+            "cruise_dist_km": req.cruise_dist_km,
+            "specific_energy_Wh_kg": req.specific_energy_Wh_kg,
+            "battery_mass_kg": req.battery_mass_kg,
+        }
+        res = run_hybrid_trade_study(
+            study_type=req.study_type,
+            architecture=req.architecture,
+            n_points=req.n_points,
+            base_mission_kwargs=kwargs,
+        )
         return _sanitize(res)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")

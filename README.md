@@ -21,6 +21,7 @@ An interactive, web-based **0D thermodynamic cycle simulator** for gas turbine e
 | **Turboprop & Turboshaft Cycle** | Shaft power & propeller thrust | Gas generator core + free power turbine + variable prop efficiency | 5–25 s / point |
 | **Mission Analysis & Fuel Burn** | 6-phase flight mission profile | Coupled aircraft drag polar + numerical fuel burn + payload-range | < 50 ms / mission |
 | **Response Surface Surrogate** | Multi-output fast predictor | 2nd-order regularized polynomial with interaction cross-terms | < 0.2 ms / point |
+| **Hybrid Electric Propulsion** | Series / Parallel / Turboelectric | Coupled GT cycle + electrical loss chain + battery SoC tracking | < 30 ms / mission |
 
 ### Gas path stations
 
@@ -225,6 +226,26 @@ Provides sub-millisecond cycle queries for real-time optimization and flight sim
    - Single-point prediction latency $< 0.2\text{ ms}$ (pure NumPy vectorized linear algebra).
    - Strict physical monotonicity preserved across flight throttle and TIT ranges.
 
+### `hybrid.py` — Hybrid Electric Propulsion Integration (Extension 5)
+
+Couples gas turbine thermodynamic cycles with electrical powertrains to evaluate fuel burn and carbon emission reduction:
+1. **Three Core System Architectures**:
+   - **Parallel Hybrid**: Mechanical shaft coupling of Gas Turbine and Electric Motor ($P_{\text{req}} = P_{\text{GT}} + P_{\text{motor}}$). Hybrid power ratio $H_P = P_{\text{motor}} / P_{\text{req}}$. Enables core downsizing and improved cruise thermal efficiency.
+   - **Series Hybrid**: Gas turbine operates exclusively as a constant-efficiency Turbogenerator decoupled from propulsors, feeding a DC bus. Electric motors drive distributed propulsors. Battery supplies peak demand or absorbs excess generator power.
+   - **Turboelectric**: Direct electrical distribution from turbogenerator to electric propulsors without battery weight ($M_{\text{batt}} = 0$). Eliminates mechanical shafting and enables Boundary Layer Ingestion (BLI).
+2. **Electrical Powertrain Loss Chain**:
+   - Component efficiencies: $\eta_{\text{motor}} = 95\%$, $\eta_{\text{inv}} = 98\%$, $\eta_{\text{gen}} = 96\%$, $\eta_{\text{dist}} = 99\%$, $\eta_{\text{batt}} = 98\%$.
+   - Component power densities: Motor ($5\text{ kW/kg}$), Inverter ($15\text{ kW/kg}$), Generator ($6\text{ kW/kg}$).
+3. **Battery State of Charge (SoC) Dynamics**:
+   - Stored capacity $E_{\text{batt}} = M_{\text{batt}} \cdot e_{\text{batt}} / 1000$ [kWh].
+   - Dynamic integration: $\Delta SoC = -P_{\text{batt}} \cdot \Delta t / E_{\text{batt}}$.
+   - C-rate tracking and automatic 20% health reserve protection cutoff.
+4. **Multi-Phase Mission Energy Audit**:
+   - Simulates 6 phases: 100% electric ground taxi $\to$ Takeoff boost ($H_P = 0.35$) $\to$ Climb assist ($H_P = 0.20$) $\to$ Cruise ($H_P = 0.05$) $\to$ Descent $\to$ 45-min Loiter reserves.
+   - Outputs block fuel savings [%], net $\text{CO}_2$ emissions reduction [kg], and primary energy [MJ] comparison vs non-hybrid baseline.
+5. **Parametric Trade Studies**:
+   - Sweeps $H_P$, battery specific energy ($180 - 550\text{ Wh/kg}$), and stage length to identify the breakeven mission range.
+
 ### `main.py` — FastAPI backend
 
 Defines Pydantic request/response schemas with range validation for all inputs. The 26 endpoints cover single-point simulation, parameter sweeps, T–s diagram data, side-by-side comparison, off-design map and operating lines, and CSV export for all engine models. CORS is open (`*`) for local development.
@@ -277,7 +298,7 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 ```
 gas-turbine-app/
 ├── backend/
-│   ├── main.py                   FastAPI — 37 API endpoints + Pydantic schemas
+│   ├── main.py                   FastAPI — 41 API endpoints + Pydantic schemas
 │   ├── meanline.py               1D mean-line aerodynamic stage design & annulus sizing
 │   ├── turboprop.py              Turboprop & turboshaft Brayton cycle solver with free PT
 │   ├── mission.py                Aircraft mission fuel burn simulation & payload-range curves
@@ -293,7 +314,7 @@ gas-turbine-app/
 │   ├── test_physics.py           Automated test suite for baseline models & endpoints (16 tests)
 │   └── requirements.txt
 ├── frontend/
-│   └── index.html                Single-file React app with 8 panels, Chart.js, SVGs & maps
+│   └── index.html                Single-file React app with 9 panels, Chart.js, SVGs & maps
 ├── data/
 │   └── CF34_deck_v4.csv     Pre-computed CF34-10E engine deck (pyCycle)
 ├── notebooks/               Source Jupyter notebooks from the YT series
@@ -326,7 +347,7 @@ start.bat
 Run the full automated test suite:
 
 ```bash
-pytest -v backend/test_physics.py backend/test_off_design.py backend/test_advanced_modules.py
+pytest -v backend/test_physics.py backend/test_off_design.py backend/test_advanced_modules.py backend/test_hybrid.py
 ```
 
 Full instructions in **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.
@@ -373,6 +394,10 @@ With the backend running, interactive docs at http://localhost:8000/docs
 | GET  | `/api/surrogate/defaults` | Default surrogate model query vector |
 | POST | `/api/surrogate/predict` | Real-time surrogate evaluation (< 0.2 ms latency) |
 | POST | `/api/surrogate/surface` | 2D response surface generator across any input slice |
+| GET  | `/api/hybrid/defaults` | Default hybrid electric powertrain parameters |
+| POST | `/api/hybrid/single` | Single operating point hybrid state (power split, SoC, fuel) |
+| POST | `/api/hybrid/mission` | 6-phase hybrid flight mission simulation & baseline comparison |
+| POST | `/api/hybrid/sweep` | Parametric trade study sweep (H_P, battery Wh/kg, distance) |
 
 ---
 

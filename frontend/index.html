@@ -44,6 +44,7 @@
     .eng-tab.tp { background: rgba(255,146,43,.15);  color: #ff922b; border-color: #ff922b; }
     .eng-tab.ms { background: rgba(177,151,252,.15); color: #b197fc; border-color: #b197fc; }
     .eng-tab.sg { background: rgba(240,101,149,.15); color: #f06595; border-color: #f06595; }
+    .eng-tab.hy { background: rgba(32,201,151,.15);  color: #20c997; border-color: #20c997; }
 
     .grid { display: grid; grid-template-columns: 330px 1fr; flex: 1; min-height: 0; }
     .sidebar { border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -80,6 +81,8 @@
     .btn-tp:hover { filter: brightness(1.1); }
     .btn-ms:hover { filter: brightness(1.1); }
     .btn-sg:hover { filter: brightness(1.1); }
+    .btn-hy { background: #20c997; color: #000; }
+    .btn-hy:hover { filter: brightness(1.1); }
     .btn:disabled { opacity: .4; cursor: not-allowed; filter: none; }
     .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
     .btn-ghost:hover { border-color: var(--acc1); color: var(--acc1); }
@@ -109,6 +112,11 @@
     .kpi.hi-ms .kpi-val { color: #b197fc; }
     .kpi.hi-sg { border-color: #f06595; }
     .kpi.hi-sg .kpi-val { color: #f06595; }
+    .kpi.hi-hy { border-color: #20c997; }
+    .kpi.hi-hy .kpi-val { color: #20c997; }
+    .batt-bar-bg { width: 100%; height: 16px; background: rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; position: relative; border: 1px solid var(--border); }
+    .batt-bar-fill { height: 100%; border-radius: 7px; transition: width 0.3s; }
+    .batt-marker { position: absolute; top: 0; bottom: 0; width: 2px; background: #ff7b72; z-index: 2; }
     .badge-ok { background: rgba(63,185,80,.2); color: var(--acc2); }
     .badge-warn { background: rgba(247,129,102,.2); color: #f78166; }
     .badge-info { background: rgba(88,166,255,.2); color: var(--acc1); }
@@ -3002,6 +3010,596 @@ function SurrogatePanel() {
   );
 }
 
+
+/* ════════════════════════════════════════════════════════════════════════════
+   EXTENSION 5: HYBRID ELECTRIC PROPULSION PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function BatterySocGauge({ soc, capacity_kWh, c_rate, mass_kg, sp_energy }) {
+  const pct = Math.max(0, Math.min(100, (soc || 0) * 100));
+  const fillColor = pct > 50 ? "#20c997" : pct > 25 ? "#e3b341" : "#ff7b72";
+
+  return (
+    <div className="card" style={{marginTop: 10}}>
+      <div className="card-hd">Battery State of Charge &amp; Pack Status</div>
+      <div className="card-bd" style={{gap: 12}}>
+        <div style={{display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700}}>
+          <span>SoC: <strong style={{color: fillColor, fontSize: 15, fontFamily: "var(--mono)"}}>{fmt(pct, 1)}%</strong></span>
+          <span style={{color: "var(--muted)", fontSize: 11}}>Reserve Threshold: 20%</span>
+        </div>
+
+        <div className="batt-bar-bg">
+          <div className="batt-marker" style={{left: "20%"}} title="20% Safety Reserve Threshold"/>
+          <div className="batt-bar-fill" style={{width: `${pct}%`, background: fillColor}}/>
+        </div>
+
+        <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11}}>
+          <div className="spec-row"><span>Energy Stored:</span><span>{fmt(capacity_kWh * soc, 1)} / {fmt(capacity_kWh, 1)} kWh</span></div>
+          <div className="spec-row"><span>Discharge C-rate:</span><span>{fmt(c_rate, 2)} C</span></div>
+          <div className="spec-row"><span>Pack Mass:</span><span>{fmt(mass_kg, 0)} kg</span></div>
+          <div className="spec-row"><span>Specific Energy:</span><span>{fmt(sp_energy, 0)} Wh/kg</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HybridSchematicSvg({ arch, p_gt, p_motor, p_batt, p_req, soc }) {
+  const isPar = arch === "parallel";
+  const isSer = arch === "series";
+  const isTurbo = arch === "turboelectric";
+
+  return (
+    <div className="card" style={{marginTop: 14}}>
+      <div className="card-hd">Interactive Powertrain Energy Flow Schematic ({arch.toUpperCase()})</div>
+      <div className="card-bd" style={{background: "#10141d", padding: 12}}>
+        <svg viewBox="0 0 640 180" style={{width: "100%", maxHeight: 200}}>
+          <defs>
+            <marker id="arr-hy" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#20c997" />
+            </marker>
+            <marker id="arr-fl" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#ff922b" />
+            </marker>
+          </defs>
+
+          {/* Gas Turbine Box */}
+          <rect x="30" y="30" width="110" height="50" rx="6" fill="#161b22" stroke="#ff922b" strokeWidth="2" />
+          <text x="85" y="52" fill="#ff922b" fontSize="11" fontWeight="700" textAnchor="middle">Gas Turbine</text>
+          <text x="85" y="68" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_gt, 0)} kW</text>
+
+          {isPar && (
+            <>
+              {/* Battery Box */}
+              <rect x="30" y="105" width="110" height="50" rx="6" fill="#161b22" stroke="#20c997" strokeWidth="2" />
+              <text x="85" y="127" fill="#20c997" fontSize="11" fontWeight="700" textAnchor="middle">Battery Pack</text>
+              <text x="85" y="143" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_batt, 0)} kW</text>
+
+              {/* Electric Motor Box */}
+              <rect x="230" y="105" width="100" height="50" rx="6" fill="#161b22" stroke="#58a6ff" strokeWidth="2" />
+              <text x="280" y="127" fill="#58a6ff" fontSize="11" fontWeight="700" textAnchor="middle">Electric Motor</text>
+              <text x="280" y="143" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_motor, 0)} kW</text>
+
+              {/* Inverter Line */}
+              <line x1="140" y1="130" x2="230" y2="130" stroke="#20c997" strokeWidth="2.5" markerEnd="url(#arr-hy)" />
+              <text x="185" y="124" fill="var(--muted)" fontSize="9" textAnchor="middle">Inverter</text>
+
+              {/* Mechanical Gearbox / Shaft Box */}
+              <rect x="420" y="65" width="90" height="60" rx="6" fill="#161b22" stroke="#e3b341" strokeWidth="2" />
+              <text x="465" y="93" fill="#e3b341" fontSize="11" fontWeight="700" textAnchor="middle">Summing</text>
+              <text x="465" y="108" fill="#e3b341" fontSize="10" textAnchor="middle">Gearbox</text>
+
+              {/* Lines to Gearbox */}
+              <line x1="140" y1="55" x2="420" y2="85" stroke="#ff922b" strokeWidth="2.5" markerEnd="url(#arr-fl)" />
+              <line x1="330" y1="130" x2="420" y2="105" stroke="#58a6ff" strokeWidth="2.5" markerEnd="url(#arr-hy)" />
+
+              {/* Propulsor Fan */}
+              <rect x="550" y="70" width="70" height="50" rx="6" fill="#161b22" stroke="#38d9a9" strokeWidth="2" />
+              <text x="585" y="92" fill="#38d9a9" fontSize="11" fontWeight="700" textAnchor="middle">Propulsor</text>
+              <text x="585" y="108" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_req, 0)} kW</text>
+              <line x1="510" y1="95" x2="550" y2="95" stroke="#e3b341" strokeWidth="3" markerEnd="url(#arr-hy)" />
+            </>
+          )}
+
+          {isSer && (
+            <>
+              {/* Generator Box */}
+              <rect x="180" y="30" width="90" height="50" rx="6" fill="#161b22" stroke="#e3b341" strokeWidth="2" />
+              <text x="225" y="52" fill="#e3b341" fontSize="11" fontWeight="700" textAnchor="middle">Generator</text>
+              <text x="225" y="68" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_gt * 0.96, 0)} kW</text>
+              <line x1="140" y1="55" x2="180" y2="55" stroke="#ff922b" strokeWidth="2.5" markerEnd="url(#arr-fl)" />
+
+              {/* DC Bus */}
+              <line x1="310" y1="20" x2="310" y2="160" stroke="#58a6ff" strokeWidth="4" />
+              <text x="315" y="28" fill="#58a6ff" fontSize="10" fontWeight="700">DC BUS</text>
+              <line x1="270" y1="55" x2="310" y2="55" stroke="#e3b341" strokeWidth="2.5" markerEnd="url(#arr-fl)" />
+
+              {/* Battery Box */}
+              <rect x="180" y="105" width="90" height="50" rx="6" fill="#161b22" stroke="#20c997" strokeWidth="2" />
+              <text x="225" y="127" fill="#20c997" fontSize="11" fontWeight="700" textAnchor="middle">Battery</text>
+              <text x="225" y="143" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_batt, 0)} kW</text>
+              <line x1="270" y1="130" x2="310" y2="130" stroke="#20c997" strokeWidth="2.5" markerEnd="url(#arr-hy)" />
+
+              {/* Electric Motor & Fan */}
+              <rect x="360" y="65" width="100" height="50" rx="6" fill="#161b22" stroke="#58a6ff" strokeWidth="2" />
+              <text x="410" y="87" fill="#58a6ff" fontSize="11" fontWeight="700" textAnchor="middle">Electric Motor</text>
+              <text x="410" y="103" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_motor, 0)} kW</text>
+              <line x1="310" y1="90" x2="360" y2="90" stroke="#58a6ff" strokeWidth="2.5" markerEnd="url(#arr-hy)" />
+
+              <rect x="510" y="65" width="90" height="50" rx="6" fill="#161b22" stroke="#38d9a9" strokeWidth="2" />
+              <text x="555" y="87" fill="#38d9a9" fontSize="11" fontWeight="700" textAnchor="middle">Fan / Prop</text>
+              <text x="555" y="103" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_req, 0)} kW</text>
+              <line x1="460" y1="90" x2="510" y2="90" stroke="#38d9a9" strokeWidth="3" markerEnd="url(#arr-hy)" />
+            </>
+          )}
+
+          {isTurbo && (
+            <>
+              {/* Generator Box */}
+              <rect x="190" y="30" width="100" height="50" rx="6" fill="#161b22" stroke="#e3b341" strokeWidth="2" />
+              <text x="240" y="52" fill="#e3b341" fontSize="11" fontWeight="700" textAnchor="middle">Generator</text>
+              <text x="240" y="68" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_gt * 0.96, 0)} kW</text>
+              <line x1="140" y1="55" x2="190" y2="55" stroke="#ff922b" strokeWidth="2.5" markerEnd="url(#arr-fl)" />
+
+              {/* Power Distribution Bus */}
+              <line x1="290" y1="55" x2="360" y2="55" stroke="#58a6ff" strokeWidth="3" markerEnd="url(#arr-hy)" />
+              <text x="325" y="47" fill="var(--muted)" fontSize="9" textAnchor="middle">AC/DC Bus</text>
+
+              {/* Distributed Electric Motors */}
+              <rect x="360" y="30" width="120" height="50" rx="6" fill="#161b22" stroke="#58a6ff" strokeWidth="2" />
+              <text x="420" y="52" fill="#58a6ff" fontSize="11" fontWeight="700" textAnchor="middle">Distributed Motors</text>
+              <text x="420" y="68" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_motor, 0)} kW</text>
+
+              {/* Distributed Fans */}
+              <rect x="520" y="30" width="100" height="50" rx="6" fill="#161b22" stroke="#38d9a9" strokeWidth="2" />
+              <text x="570" y="52" fill="#38d9a9" fontSize="11" fontWeight="700" textAnchor="middle">Electric Fans</text>
+              <text x="570" y="68" fill="var(--text)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmt(p_req, 0)} kW</text>
+              <line x1="480" y1="55" x2="520" y2="55" stroke="#38d9a9" strokeWidth="3" markerEnd="url(#arr-hy)" />
+
+              <text x="320" y="130" fill="var(--muted)" fontSize="11" textAnchor="middle">
+                Zero Battery Weight — Mechanical Decoupling &amp; Boundary Layer Ingestion (BLI)
+              </text>
+            </>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function HybridMissionProfileChart({ phases }) {
+  const rRef = useRef();
+  
+  const altPts = [];
+  const socPts = [];
+  let cumTime = 0;
+
+  if (phases && phases.length) {
+    phases.forEach((ph, idx) => {
+      if (idx === 0) {
+        altPts.push({ x: 0, y: 0 });
+        socPts.push({ x: 0, y: 100 });
+      }
+      cumTime += ph.duration_min;
+      const alt = ph.phase === "Taxi-out" ? 0 : ph.phase === "Takeoff" ? 150 : ph.phase === "Climb" ? 5500 : ph.phase === "Cruise" ? 9144 : ph.phase === "Descent" ? 3600 : 1500;
+      altPts.push({ x: cumTime, y: alt });
+      socPts.push({ x: cumTime, y: ph.end_soc * 100 });
+    });
+  }
+
+  const datasets = [
+    {
+      label: "Altitude [m]",
+      data: altPts,
+      borderColor: "#58a6ff",
+      backgroundColor: "rgba(88,166,255,0.08)",
+      yAxisID: "yAlt",
+      fill: true,
+      tension: 0.1,
+      pointRadius: 4,
+      showLine: true,
+    },
+    {
+      label: "Battery SoC [%]",
+      data: socPts,
+      borderColor: "#20c997",
+      backgroundColor: "rgba(32,201,151,0.08)",
+      yAxisID: "ySoC",
+      fill: false,
+      tension: 0.1,
+      pointRadius: 4,
+      showLine: true,
+    }
+  ];
+
+  const opts = {
+    animation: false, responsive: true,
+    plugins: { legend: { display: true, labels: { color: "#8b949e" } } },
+    scales: {
+      x: { type: "linear", title: { display: true, text: "Mission Time [min]", color: "#8b949e" }, ticks: { color: "#8b949e" }, grid: { color: "rgba(48,54,61,.6)" } },
+      yAlt: { type: "linear", position: "left", title: { display: true, text: "Altitude [m]", color: "#58a6ff" }, ticks: { color: "#58a6ff" }, grid: { color: "rgba(48,54,61,.6)" } },
+      ySoC: { type: "linear", position: "right", min: 0, max: 100, title: { display: true, text: "Battery SoC [%]", color: "#20c997" }, ticks: { color: "#20c997" }, grid: { drawOnChartArea: false } }
+    }
+  };
+
+  useChart(rRef, "line", phases?.length ? { datasets } : null, opts);
+
+  return (
+    <div className="chart-card">
+      <div className="chart-title">Hybrid Mission Altitude &amp; Battery SoC Depletion Profile</div>
+      <canvas ref={rRef}/>
+    </div>
+  );
+}
+
+function HybridTradeStudyChart({ points, xLabel }) {
+  const rRef = useRef();
+
+  const ds = points ? [
+    {
+      label: "Net Fuel Savings [%]",
+      data: points.map(p => ({ x: p.x, y: p.fuel_saved_percent })),
+      borderColor: "#20c997",
+      backgroundColor: "rgba(32,201,151,0.15)",
+      fill: true,
+      tension: 0.25,
+      pointRadius: 4,
+      showLine: true,
+    }
+  ] : [];
+
+  const opts = {
+    animation: false, responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { type: "linear", title: { display: true, text: xLabel, color: "#8b949e" }, ticks: { color: "#8b949e" }, grid: { color: "rgba(48,54,61,.6)" } },
+      y: { title: { display: true, text: "Net Mission Fuel Savings [%]", color: "#8b949e" }, ticks: { color: "#8b949e" }, grid: { color: "rgba(48,54,61,.6)" } }
+    }
+  };
+
+  useChart(rRef, "line", ds.length ? { datasets: ds } : null, opts);
+
+  return (
+    <div className="chart-card">
+      <div className="chart-title">Trade Study: Fuel Savings vs {xLabel}</div>
+      <canvas ref={rRef}/>
+    </div>
+  );
+}
+
+function HybridPanel() {
+  const [tab, setTab] = useState("operating_point"); // "operating_point", "mission", "trade_study"
+  const [arch, setArch] = useState("parallel"); // "parallel", "series", "turboelectric"
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Single point state
+  const [pSingle, setPSingle] = useState({
+    shaft_power_req_kW: 2400.0,
+    hybrid_power_ratio_HP: 0.25,
+    battery_mass_kg: 1400.0,
+    battery_soc: 0.90,
+  });
+
+  // Mission simulation state
+  const [pMission, setPMission] = useState({
+    cruise_alt_m: 9144.0,
+    cruise_mach: 0.72,
+    cruise_dist_km: 900.0,
+    payload_kg: 6500.0,
+    battery_mass_kg: 1800.0,
+    specific_energy_Wh_kg: 300.0,
+    takeoff_hybrid_ratio: 0.35,
+    climb_hybrid_ratio: 0.20,
+    cruise_hybrid_ratio: 0.05,
+    descent_hybrid_ratio: 0.0,
+  });
+
+  // Trade study state
+  const [pTrade, setPTrade] = useState({
+    study_type: "hybrid_ratio",
+    n_points: 10,
+    cruise_dist_km: 900.0,
+    specific_energy_Wh_kg: 300.0,
+    battery_mass_kg: 1800.0,
+  });
+
+  const [resSingle, setResSingle] = useState(null);
+  const [resMission, setResMission] = useState(null);
+  const [resTrade, setResTrade] = useState(null);
+
+  const setSingle = (k, v) => setPSingle(prev => ({ ...prev, [k]: v }));
+  const setMiss = (k, v) => setPMission(prev => ({ ...prev, [k]: v }));
+  const setTrd = (k, v) => setPTrade(prev => ({ ...prev, [k]: v }));
+
+  const runSingle = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/hybrid/single`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ architecture: arch, ...pSingle })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Hybrid evaluation failed");
+      }
+      const data = await res.json();
+      setResSingle(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runMission = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/hybrid/mission`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ architecture: arch, ...pMission })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Hybrid mission simulation failed");
+      }
+      const data = await res.json();
+      setResMission(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runTrade = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/hybrid/sweep`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ architecture: arch, ...pTrade })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Hybrid trade study failed");
+      }
+      const data = await res.json();
+      setResTrade(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Run initial point on mount
+  useEffect(() => {
+    runSingle();
+  }, [arch]);
+
+  return (
+    <div className="grid">
+      <div className="sidebar">
+        <div className="card">
+          <div className="card-hd">Architecture Selection</div>
+          <div className="card-bd">
+            <div className="field">
+              <label>Hybrid Powertrain</label>
+              <select value={arch} onChange={e=>setArch(e.target.value)}>
+                <option value="parallel">Parallel Hybrid (Mechanical Coupling)</option>
+                <option value="series">Series Hybrid (Turbogenerator + DC Bus)</option>
+                <option value="turboelectric">Turboelectric (Distributed Electric, No Batt)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="mode-tog" style={{marginTop: 5}}>
+          <button className={`mode-btn ${tab==="operating_point"?"active":""}`} onClick={()=>setTab("operating_point")}>Operating Point</button>
+          <button className={`mode-btn ${tab==="mission"?"active":""}`} onClick={()=>setTab("mission")}>Mission Profile</button>
+          <button className={`mode-btn ${tab==="trade_study"?"active":""}`} onClick={()=>setTab("trade_study")}>Trade Study</button>
+        </div>
+
+        {tab === "operating_point" && (
+          <>
+            <div className="card">
+              <div className="card-hd">Operating Condition</div>
+              <div className="card-bd">
+                <Slider label="Required Shaft Power" unit="kW" value={pSingle.shaft_power_req_kW} min={500} max={6000} step={50} onChange={v=>setSingle("shaft_power_req_kW",v)} dp={0}/>
+                {arch !== "turboelectric" && (
+                  <Slider label="Hybrid Power Ratio (H_P)" unit="" value={pSingle.hybrid_power_ratio_HP} min={0.0} max={0.60} step={0.02} onChange={v=>setSingle("hybrid_power_ratio_HP",v)} dp={2}/>
+                )}
+                {arch !== "turboelectric" && (
+                  <>
+                    <Slider label="Battery Pack Mass" unit="kg" value={pSingle.battery_mass_kg} min={300} max={4000} step={50} onChange={v=>setSingle("battery_mass_kg",v)} dp={0}/>
+                    <Slider label="Battery State of Charge" unit="" value={pSingle.battery_soc} min={0.10} max={1.00} step={0.02} onChange={v=>setSingle("battery_soc",v)} dp={2}/>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <button className="btn btn-hy" onClick={runSingle} disabled={loading}>
+              {loading ? <><span className="spin"/>Calculating…</> : "⚡ Evaluate Operating Point"}
+            </button>
+          </>
+        )}
+
+        {tab === "mission" && (
+          <>
+            <div className="card">
+              <div className="card-hd">Hybrid Mission Route</div>
+              <div className="card-bd">
+                <Slider label="Cruise Distance" unit="km" value={pMission.cruise_dist_km} min={300} max={2500} step={50} onChange={v=>setMiss("cruise_dist_km",v)} dp={0}/>
+                <Slider label="Cruise Altitude" unit="m" value={pMission.cruise_alt_m} min={5000} max={11500} step={250} onChange={v=>setMiss("cruise_alt_m",v)} dp={0}/>
+                <Slider label="Cruise Mach" unit="" value={pMission.cruise_mach} min={0.60} max={0.82} step={0.01} onChange={v=>setMiss("cruise_mach",v)} dp={2}/>
+                <Slider label="Payload Weight" unit="kg" value={pMission.payload_kg} min={2000} max={10000} step={250} onChange={v=>setMiss("payload_kg",v)} dp={0}/>
+              </div>
+            </div>
+
+            {arch !== "turboelectric" && (
+              <div className="card">
+                <div className="card-hd">Battery &amp; Electric Assist</div>
+                <div className="card-bd">
+                  <Slider label="Battery Mass" unit="kg" value={pMission.battery_mass_kg} min={500} max={3500} step={50} onChange={v=>setMiss("battery_mass_kg",v)} dp={0}/>
+                  <Slider label="Specific Energy" unit="Wh/kg" value={pMission.specific_energy_Wh_kg} min={200} max={550} step={10} onChange={v=>setMiss("specific_energy_Wh_kg",v)} dp={0}/>
+                  <Slider label="Takeoff Assist H_P" unit="" value={pMission.takeoff_hybrid_ratio} min={0.0} max={0.55} step={0.02} onChange={v=>setMiss("takeoff_hybrid_ratio",v)} dp={2}/>
+                  <Slider label="Climb Assist H_P" unit="" value={pMission.climb_hybrid_ratio} min={0.0} max={0.35} step={0.02} onChange={v=>setMiss("climb_hybrid_ratio",v)} dp={2}/>
+                  <Slider label="Cruise Assist H_P" unit="" value={pMission.cruise_hybrid_ratio} min={0.0} max={0.15} step={0.01} onChange={v=>setMiss("cruise_hybrid_ratio",v)} dp={2}/>
+                </div>
+              </div>
+            )}
+
+            <button className="btn btn-hy" onClick={runMission} disabled={loading}>
+              {loading ? <><span className="spin"/>Simulating Mission…</> : "⚡ Fly Hybrid Mission Profile"}
+            </button>
+          </>
+        )}
+
+        {tab === "trade_study" && (
+          <>
+            <div className="card">
+              <div className="card-hd">Trade Study Sweep Parameter</div>
+              <div className="card-bd">
+                <div className="field">
+                  <label>Study Variable</label>
+                  <select value={pTrade.study_type} onChange={e=>setTrd("study_type",e.target.value)}>
+                    <option value="hybrid_ratio">Takeoff Hybrid Ratio (H_P)</option>
+                    <option value="specific_energy">Battery Specific Energy (Wh/kg)</option>
+                    <option value="distance">Stage Length / Cruise Distance (km)</option>
+                  </select>
+                </div>
+                <Num label="Sweep Resolution" unit="pts" value={pTrade.n_points} min={5} max={18} onChange={v=>setTrd("n_points",v)}/>
+              </div>
+            </div>
+
+            <button className="btn btn-hy" onClick={runTrade} disabled={loading}>
+              {loading ? <><span className="spin"/>Running Sweep…</> : "⚡ Compute Parametric Trade Study"}
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="content">
+        {error && <div className="alert a-err"><strong>Hybrid System Error:</strong>&nbsp;{error}</div>}
+
+        <div className="alert a-ok" style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+          <span>
+            <strong>⚡ Hybrid Electric Propulsion:</strong> Coupling gas turbine thermodynamic cycles with electrical powertrains
+            (batteries, inverters, motors, and generators) for part-load optimization and carbon emission reduction.
+          </span>
+          <span className="badge" style={{background: "rgba(32,201,151,0.25)", color: "#20c997", padding: "4px 8px"}}>
+            {arch.toUpperCase()} HYBRID
+          </span>
+        </div>
+
+        {tab === "operating_point" && resSingle && (
+          <>
+            <div className="kpi-strip">
+              <KPI label="Shaft Power Req" value={fmt(resSingle.shaft_power_req_kW, 0)} unit="kW" cls="hi-hy"/>
+              <KPI label="Gas Turbine Power" value={fmt(resSingle.gas_turbine_power_kW, 0)} unit="kW"/>
+              <KPI label="Electric Motor" value={fmt(resSingle.electric_motor_power_kW, 0)} unit="kW"/>
+              <KPI label="Battery Draw" value={fmt(resSingle.battery_power_kW, 0)} unit="kW"/>
+              <KPI label="Hybrid Fuel Flow" value={fmt(resSingle.fuel_flow_kg_h, 1)} unit="kg/h"/>
+              <KPI label="Conventional Flow" value={fmt(resSingle.conventional_fuel_flow_kg_h, 1)} unit="kg/h"/>
+              <KPI label="Fuel Savings" value={`${fmt(resSingle.fuel_savings_pct, 1)}%`} unit={resSingle.fuel_savings_pct > 0 ? "✓ REDUCED" : "PENALTY"} cls={resSingle.fuel_savings_pct > 0 ? "hi-hy" : ""}/>
+              <KPI label="Battery C-rate" value={fmt(resSingle.c_rate, 2)} unit="C"/>
+            </div>
+
+            <HybridSchematicSvg
+              arch={arch}
+              p_gt={resSingle.gas_turbine_power_kW}
+              p_motor={resSingle.electric_motor_power_kW}
+              p_batt={resSingle.battery_power_kW}
+              p_req={resSingle.shaft_power_req_kW}
+              soc={resSingle.battery_soc}
+            />
+
+            {arch !== "turboelectric" && (
+              <BatterySocGauge
+                soc={resSingle.battery_soc}
+                capacity_kWh={resSingle.battery_capacity_kWh}
+                c_rate={resSingle.c_rate}
+                mass_kg={resSingle.battery_mass_kg}
+                sp_energy={resSingle.battery_mass_kg > 0 ? (resSingle.battery_capacity_kWh * 1000 / resSingle.battery_mass_kg) : 250}
+              />
+            )}
+
+            <div className="card">
+              <div className="card-hd">Electrical Powertrain Component Mass Breakdown</div>
+              <div className="card-bd" style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12}}>
+                <div>
+                  <div className="spec-row"><span>Battery Pack Mass:</span><span>{fmt(resSingle.powertrain_masses?.battery_kg, 1)} kg</span></div>
+                  <div className="spec-row"><span>Electric Motor Mass:</span><span>{fmt(resSingle.powertrain_masses?.motor_kg, 1)} kg</span></div>
+                  <div className="spec-row"><span>Inverter Mass:</span><span>{fmt(resSingle.powertrain_masses?.inverter_kg, 1)} kg</span></div>
+                </div>
+                <div>
+                  <div className="spec-row"><span>Generator Mass:</span><span>{fmt(resSingle.powertrain_masses?.generator_kg, 1)} kg</span></div>
+                  <div className="spec-row"><strong style={{color:"#20c997"}}>Total Electrical Hardware:</strong><strong style={{color:"#20c997"}}>{fmt(resSingle.powertrain_masses?.total_elec_sys_kg, 1)} kg</strong></div>
+                  <div className="spec-row"><span>Part-Load BSFC:</span><span>{fmt(resSingle.bsfc_kg_kWh, 3)} kg/(kW·h)</span></div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === "mission" && resMission && (
+          <>
+            <div className="kpi-strip">
+              <KPI label="Hybrid Fuel Burn" value={fmt(resMission.summary?.hybrid_fuel_burn_kg, 1)} unit="kg" cls="hi-hy"/>
+              <KPI label="Conventional Burn" value={fmt(resMission.summary?.conventional_fuel_burn_kg, 1)} unit="kg"/>
+              <KPI label="Fuel Saved" value={`${fmt(resMission.summary?.fuel_saved_kg, 1)} kg (${fmt(resMission.summary?.fuel_saved_percent, 1)}%)`} unit={resMission.summary?.fuel_saved_percent > 0 ? "✓ NET POSITIVE" : "⚠ BATTERY PENALTY"} cls={resMission.summary?.fuel_saved_percent > 0 ? "hi-hy" : ""}/>
+              <KPI label="Net CO₂ Saved" value={fmt(resMission.summary?.co2_reduction_kg, 1)} unit="kg CO₂"/>
+              <KPI label="Electric Energy" value={fmt(resMission.summary?.electrical_energy_used_kWh, 1)} unit="kWh"/>
+              <KPI label="Final Battery SoC" value={`${fmt(resMission.summary?.final_battery_soc * 100, 1)}%`} unit="Min: 20%"/>
+              <KPI label="Primary Energy Saved" value={`${fmt(resMission.summary?.energy_saved_percent, 1)}%`} unit="MJ Equiv"/>
+            </div>
+
+            <HybridMissionProfileChart phases={resMission.phases} />
+
+            <div className="card">
+              <div className="card-hd">6-Phase Hybrid Mission Energy Audit Table</div>
+              <div className="card-bd" style={{padding: 0}}>
+                <table className="st-table">
+                  <thead>
+                    <tr>
+                      <th>Phase</th><th>Time [min]</th><th>H_P Assist</th><th>GT Power [kW]</th>
+                      <th>Motor [kW]</th><th>Fuel [kg]</th><th>Battery [kWh]</th><th>End SoC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resMission.phases?.map((ph, idx) => (
+                      <tr key={idx}>
+                        <td><strong>{ph.phase}</strong></td>
+                        <td>{fmt(ph.duration_min, 1)}</td>
+                        <td>{fmt(ph.hybrid_power_ratio, 2)}</td>
+                        <td>{fmt(ph.gt_power_kW, 0)}</td>
+                        <td>{fmt(ph.motor_power_kW, 0)}</td>
+                        <td><strong style={{color:"#ff922b"}}>{fmt(ph.fuel_burned_kg, 1)}</strong></td>
+                        <td><strong style={{color:"#20c997"}}>{fmt(ph.elec_energy_kWh, 1)}</strong></td>
+                        <td>{fmt(ph.end_soc * 100, 1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === "trade_study" && resTrade && (
+          <HybridTradeStudyChart points={resTrade.points} xLabel={resTrade.x_label} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    ROOT APP
    ════════════════════════════════════════════════════════════════════════════ */
@@ -3101,6 +3699,9 @@ function App() {
           <button className={`eng-tab ${engine==="surrogate"?"sg":""}`} onClick={()=>setEngine("surrogate")}>
             ⚡ Surrogate
           </button>
+          <button className={`eng-tab ${engine==="hybrid"?"hy":""}`} onClick={()=>setEngine("hybrid")}>
+            ⚡ Hybrid Electric
+          </button>
         </div>
       </header>
 
@@ -3111,7 +3712,8 @@ function App() {
         : engine==="meanline" ? <MeanLinePanel/>
         : engine==="turboprop" ? <TurbopropPanel/>
         : engine==="mission" ? <MissionPanel/>
-        : <SurrogatePanel/>}
+        : engine==="surrogate" ? <SurrogatePanel/>
+        : <HybridPanel/>}
     </div>
   );
 }
