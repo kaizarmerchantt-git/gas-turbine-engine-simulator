@@ -270,16 +270,22 @@ class OffDesignSweepRequest(BaseModel):
 
 # Mean-Line Aerodynamics Schemas
 class MeanlineCompressorStageRequest(BaseModel):
-    T01:        float = Field(288.15, ge=150.0, le=800.0)
-    P01:        float = Field(101325.0, ge=5000.0, le=5000000.0)
-    delta_T0:   float = Field(35.0, ge=5.0, le=120.0)
-    N_rpm:      float = Field(12000.0, ge=1000.0, le=50000.0)
-    r_mean:     float = Field(0.28, ge=0.05, le=2.0)
-    C_a:        float = Field(160.0, ge=50.0, le=350.0)
-    reaction:   float = Field(0.50, ge=0.1, le=0.9)
-    eta_stage:  float = Field(0.88, ge=0.60, le=0.98)
-    mdot:       float = Field(20.0, ge=0.5, le=200.0)
-    solidity:   float = Field(1.2, ge=0.6, le=2.5)
+    T01:         float = Field(288.15, ge=150.0, le=800.0)
+    P01:         float = Field(101325.0, ge=5000.0, le=5000000.0)
+    delta_T0:    float = Field(35.0, ge=5.0, le=120.0)
+    N_rpm:       float = Field(12000.0, ge=1000.0, le=50000.0)
+    r_mean:      float = Field(0.28, ge=0.05, le=2.0)
+    C_a:         float = Field(160.0, ge=50.0, le=350.0)
+    reaction:    float = Field(0.50, ge=0.1, le=0.9)
+    eta_stage:   float = Field(0.88, ge=0.60, le=0.98)
+    mdot:        float = Field(20.0, ge=0.5, le=200.0)
+    solidity:    float = Field(1.2, ge=0.6, le=2.5)
+    alpha_1_deg: Optional[float] = None
+    beta_2_deg:  Optional[float] = None
+    C_a1:        Optional[float] = None
+    C_a2:        Optional[float] = None
+    alpha_3_deg: Optional[float] = None
+    U:           Optional[float] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -330,15 +336,18 @@ class MeanlineMultistageRequest(BaseModel):
 
 
 class MeanlineTurbineStageRequest(BaseModel):
-    T01:        float = Field(1400.0, ge=800.0, le=2200.0)
-    P01:        float = Field(800000.0, ge=50000.0, le=5000000.0)
-    delta_T0:   float = Field(180.0, ge=20.0, le=400.0)
-    N_rpm:      float = Field(12000.0, ge=1000.0, le=50000.0)
-    r_mean:     float = Field(0.28, ge=0.05, le=2.0)
-    C_a:        float = Field(220.0, ge=50.0, le=450.0)
-    reaction:   float = Field(0.40, ge=0.1, le=0.9)
-    eta_stage:  float = Field(0.90, ge=0.60, le=0.98)
-    solidity:   float = Field(1.4, ge=0.6, le=2.5)
+    T01:         float = Field(1400.0, ge=800.0, le=2200.0)
+    P01:         float = Field(800000.0, ge=50000.0, le=5000000.0)
+    delta_T0:    float = Field(180.0, ge=20.0, le=400.0)
+    N_rpm:       float = Field(12000.0, ge=1000.0, le=50000.0)
+    r_mean:      float = Field(0.28, ge=0.05, le=2.0)
+    C_a:         float = Field(220.0, ge=50.0, le=450.0)
+    reaction:    float = Field(0.40, ge=0.1, le=0.9)
+    eta_stage:   float = Field(0.90, ge=0.60, le=0.98)
+    solidity:    float = Field(1.4, ge=0.6, le=2.5)
+    alpha_2_deg: Optional[float] = None
+    beta_3_deg:  Optional[float] = None
+    U:           Optional[float] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -908,6 +917,136 @@ def turbofan_single(req: TurbofanSingleRequest):
         result["alt_ft"] = req.alt
         result["Mach"]   = req.MN
         result["PC"]     = req.PC
+
+        # Rankine to Kelvin: K = R * 5/9, atm to kPa: kPa = atm * 101.325
+        T0_K = float(result.get("fc:stat:T", 390.0) * 5.0 / 9.0)
+        p0_kPa = float(result.get("fc:stat:P", 0.235) * 101.325)
+        V_flight = float(req.MN * math.sqrt(1.4 * 287.05 * T0_K))
+
+        stations = {
+            "0": {
+                "label": "Ambient Freestream",
+                "T_K": round(float(T0_K * (1.0 + 0.2 * req.MN**2)), 1),
+                "Ts_K": round(float(T0_K), 1),
+                "P_atm": round(float(result.get("fc:stat:P", 0.235)), 4),
+                "p_kPa": round(float(p0_kPa * (1.0 + 0.2 * req.MN**2)**3.5), 1),
+                "ps_kPa": round(float(p0_kPa), 1),
+                "Mach": round(float(req.MN), 3),
+                "V_ms": round(float(V_flight), 1),
+                "s_JkgK": round(float(result.get("fc:stat:S", 1.6) * 4186.8), 0),
+            },
+            "1": {
+                "label": "Inlet Lip Entry",
+                "T_K": round(float(result.get("inlet:tot:T", 444.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("inlet:tot:T", 444.0) * 5.0 / 9.0 * 0.95), 1),
+                "P_atm": round(float(result.get("inlet:tot:P", 0.35)), 4),
+                "p_kPa": round(float(result.get("inlet:tot:P", 0.35) * 101.325), 1),
+                "ps_kPa": round(float(result.get("inlet:tot:P", 0.35) * 101.325 * 0.85), 1),
+                "Mach": round(float(req.MN * 0.85), 3),
+                "V_ms": round(float(V_flight * 0.85), 1),
+                "s_JkgK": round(float(result.get("inlet:tot:S", 1.6) * 4186.8), 0),
+            },
+            "2": {
+                "label": "Fan Face / Intake Exit",
+                "T_K": round(float(result.get("inlet:tot:T", 444.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("inlet:tot:T", 444.0) * 5.0 / 9.0 * 0.92), 1),
+                "P_atm": round(float(result.get("inlet:tot:P", 0.35)), 4),
+                "p_kPa": round(float(result.get("inlet:tot:P", 0.35) * 101.325), 1),
+                "ps_kPa": round(float(result.get("inlet:tot:P", 0.35) * 101.325 * 0.78), 1),
+                "Mach": 0.55,
+                "V_ms": 170.0,
+                "s_JkgK": round(float(result.get("inlet:tot:S", 1.6) * 4186.8), 0),
+            },
+            "13": {
+                "label": "Bypass Duct Inlet",
+                "T_K": round(float(result.get("fan:tot:T", 523.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("fan:tot:T", 523.0) * 5.0 / 9.0 * 0.94), 1),
+                "P_atm": round(float(result.get("fan:tot:P", 0.55)), 4),
+                "p_kPa": round(float(result.get("fan:tot:P", 0.55) * 101.325), 1),
+                "ps_kPa": round(float(result.get("fan:tot:P", 0.55) * 101.325 * 0.85), 1),
+                "Mach": 0.45,
+                "V_ms": 160.0,
+                "s_JkgK": round(float(result.get("fan:tot:S", 1.62) * 4186.8), 0),
+            },
+            "21": {
+                "label": "Core Booster / LPC Entry",
+                "T_K": round(float(result.get("lpc:tot:T", result.get("fan:tot:T", 523.0)) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("lpc:tot:T", result.get("fan:tot:T", 523.0)) * 5.0 / 9.0 * 0.95), 1),
+                "P_atm": round(float(result.get("lpc:tot:P", result.get("fan:tot:P", 0.55))), 4),
+                "p_kPa": round(float(result.get("lpc:tot:P", result.get("fan:tot:P", 0.55)) * 101.325), 1),
+                "ps_kPa": round(float(result.get("lpc:tot:P", result.get("fan:tot:P", 0.55)) * 101.325 * 0.88), 1),
+                "Mach": 0.40,
+                "V_ms": 140.0,
+                "s_JkgK": round(float(result.get("lpc:tot:S", 1.62) * 4186.8), 0),
+            },
+            "3": {
+                "label": "HPC Exit / Combustor Inlet",
+                "T_K": round(float(result.get("hpc:tot:T", 1000.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("hpc:tot:T", 1000.0) * 5.0 / 9.0 * 0.97), 1),
+                "P_atm": round(float(result.get("hpc:tot:P", 7.0)), 4),
+                "p_kPa": round(float(result.get("hpc:tot:P", 7.0) * 101.325), 1),
+                "ps_kPa": round(float(result.get("hpc:tot:P", 7.0) * 101.325 * 0.92), 1),
+                "Mach": 0.28,
+                "V_ms": 120.0,
+                "s_JkgK": round(float(result.get("hpc:tot:S", 1.68) * 4186.8), 0),
+            },
+            "4": {
+                "label": "Combustor Exit / Turbine Inlet",
+                "T_K": round(float(result.get("burner:tot:T", 2500.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("burner:tot:T", 2500.0) * 5.0 / 9.0 * 0.98), 1),
+                "P_atm": round(float(result.get("burner:tot:P", result.get("hpc:tot:P", 7.0) * 0.95)), 4),
+                "p_kPa": round(float(result.get("burner:tot:P", result.get("hpc:tot:P", 7.0) * 0.95) * 101.325), 1),
+                "ps_kPa": round(float(result.get("burner:tot:P", result.get("hpc:tot:P", 7.0) * 0.95) * 101.325 * 0.94), 1),
+                "Mach": 0.22,
+                "V_ms": 115.0,
+                "s_JkgK": round(float(result.get("burner:tot:S", 2.1) * 4186.8), 0),
+            },
+            "41": {
+                "label": "HPT Rotor Entry",
+                "T_K": round(float(result.get("hpt:tot:T", result.get("burner:tot:T", 2500.0) * 0.92) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("hpt:tot:T", result.get("burner:tot:T", 2500.0) * 0.92) * 5.0 / 9.0 * 0.85), 1),
+                "P_atm": round(float(result.get("hpt:tot:P", result.get("burner:tot:P", 6.5) * 0.65)), 4),
+                "p_kPa": round(float(result.get("hpt:tot:P", result.get("burner:tot:P", 6.5) * 0.65) * 101.325), 1),
+                "ps_kPa": round(float(result.get("hpt:tot:P", result.get("burner:tot:P", 6.5) * 0.65) * 101.325 * 0.65), 1),
+                "Mach": 0.75,
+                "V_ms": 420.0,
+                "s_JkgK": round(float(result.get("hpt:tot:S", 2.12) * 4186.8), 0),
+            },
+            "5": {
+                "label": "LPT Exit / Core Exhaust",
+                "T_K": round(float(result.get("lpt:tot:T", 1400.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("lpt:tot:T", 1400.0) * 5.0 / 9.0 * 0.92), 1),
+                "P_atm": round(float(result.get("lpt:tot:P", 0.65)), 4),
+                "p_kPa": round(float(result.get("lpt:tot:P", 0.65) * 101.325), 1),
+                "ps_kPa": round(float(result.get("lpt:tot:P", 0.65) * 101.325 * 0.80), 1),
+                "Mach": 0.52,
+                "V_ms": 280.0,
+                "s_JkgK": round(float(result.get("lpt:tot:S", 2.2) * 4186.8), 0),
+            },
+            "8": {
+                "label": "Core Nozzle Throat",
+                "T_K": round(float(result.get("lpt:tot:T", 1400.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("lpt:tot:T", 1400.0) * 5.0 / 9.0 * 0.833), 1),
+                "P_atm": round(float(result.get("lpt:tot:P", 0.65)), 4),
+                "p_kPa": round(float(result.get("lpt:tot:P", 0.65) * 101.325), 1),
+                "ps_kPa": round(float(result.get("lpt:tot:P", 0.65) * 101.325 * 0.528), 1),
+                "Mach": 1.0,
+                "V_ms": round(float(math.sqrt(1.33 * 287.05 * (result.get("lpt:tot:T", 1400.0) * 5.0 / 9.0 * 0.833))), 1),
+                "s_JkgK": round(float(result.get("lpt:tot:S", 2.2) * 4186.8), 0),
+            },
+            "18": {
+                "label": "Bypass Nozzle Throat",
+                "T_K": round(float(result.get("fan:tot:T", 523.0) * 5.0 / 9.0), 1),
+                "Ts_K": round(float(result.get("fan:tot:T", 523.0) * 5.0 / 9.0 * 0.833), 1),
+                "P_atm": round(float(result.get("fan:tot:P", 0.55)), 4),
+                "p_kPa": round(float(result.get("fan:tot:P", 0.55) * 101.325), 1),
+                "ps_kPa": round(float(result.get("fan:tot:P", 0.55) * 101.325 * 0.528), 1),
+                "Mach": 1.0,
+                "V_ms": round(float(math.sqrt(1.4 * 287.05 * (result.get("fan:tot:T", 523.0) * 5.0 / 9.0 * 0.833))), 1),
+                "s_JkgK": round(float(result.get("fan:tot:S", 1.62) * 4186.8), 0),
+            }
+        }
+        result["stations"] = stations
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")

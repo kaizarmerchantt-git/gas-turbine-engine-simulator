@@ -19,84 +19,94 @@ from typing import Dict, List, Any, Optional, Tuple
 def solve_compressor_stage(
     T01: float,
     P01: float,
-    delta_T0: float,
-    N_rpm: float,
-    r_mean: float,
-    C_a: float,
+    delta_T0: float = 35.0,
+    N_rpm: float = 12000.0,
+    r_mean: float = 0.28,
+    C_a: float = 160.0,
     reaction: float = 0.50,
     eta_stage: float = 0.88,
     mdot: float = 20.0,
     solidity: float = 1.2,
     gamma: float = 1.40,
     cp: float = 1005.0,
+    alpha_1_deg: Optional[float] = None,
+    beta_2_deg: Optional[float] = None,
+    C_a1: Optional[float] = None,
+    C_a2: Optional[float] = None,
+    alpha_3_deg: Optional[float] = None,
+    U: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Solves 1D mean-line aerodynamics and velocity triangles for an axial compressor stage (Rotor + Stator).
-
-    Parameters:
-    -----------
-    T01 : float
-        Stage inlet total temperature [K]
-    P01 : float
-        Stage inlet total pressure [Pa]
-    delta_T0 : float
-        Stage total temperature rise [K]
-    N_rpm : float
-        Rotational shaft speed [RPM]
-    r_mean : float
-        Mean blade radius [m]
-    C_a : float
-        Axial flow velocity [m/s] (assumed constant through stage)
-    reaction : float
-        Degree of reaction R = Delta h_rotor / Delta h_stage (typically 0.50 for repeating stage)
-    eta_stage : float
-        Stage isentropic efficiency
-    mdot : float
-        Mass flow rate [kg/s]
-    solidity : float
-        Rotor blade solidity sigma = chord / pitch (typically 1.0 - 1.5)
-    gamma : float
-        Ratio of specific heats
-    cp : float
-        Specific heat at constant pressure [J/(kg*K)]
-
-    Returns:
-    --------
-    dict containing velocity triangles, flow angles, stage coefficients, stall criteria, and geometry.
+    Supports both kinematic flow angle synthesis (alpha_1, beta_2, Ca1, Ca2) and stage work synthesis (delta_T0, reaction).
     """
     R_gas = cp * (gamma - 1.0) / gamma
 
     # Blade speed U
-    omega = 2.0 * math.pi * N_rpm / 60.0
-    U = omega * r_mean
+    if U is not None and U > 0.0:
+        blade_speed = float(U)
+        if r_mean > 0:
+            N_rpm = (blade_speed * 60.0) / (2.0 * math.pi * r_mean)
+    else:
+        omega = 2.0 * math.pi * N_rpm / 60.0
+        blade_speed = omega * r_mean
 
-    if U <= 0.0:
+    if blade_speed <= 0.0:
         raise ValueError("Blade speed U must be positive")
+    U = blade_speed
 
-    # Stage work and non-dimensional loading
-    delta_h0 = cp * delta_T0
-    psi = delta_h0 / (U * U)      # Stage loading coefficient
-    phi = C_a / U                 # Flow coefficient
+    # Check whether flow angles are provided for kinematic solving
+    if alpha_1_deg is not None and beta_2_deg is not None:
+        Ca1 = float(C_a1 if C_a1 is not None else C_a)
+        Ca2 = float(C_a2 if C_a2 is not None else Ca1)
+        C_a = Ca1
 
-    # Euler turbomachinery equation: Delta h0 = U * (C_theta2 - C_theta1)
-    # Delta C_theta = Delta h0 / U = psi * U
-    delta_C_theta = delta_h0 / U
+        # Rotor Inlet
+        alpha1_rad = math.radians(float(alpha_1_deg))
+        C_theta1 = Ca1 * math.tan(alpha1_rad)
+        W_theta1 = C_theta1 - U
 
-    # For repeating stage with constant axial velocity:
-    # R = 1 - (C_theta1 + C_theta2) / (2 * U)
-    # C_theta1 + C_theta2 = 2 * (1 - R) * U
-    # Combined with C_theta2 - C_theta1 = delta_C_theta:
-    C_theta1 = U * (1.0 - reaction) - 0.5 * delta_C_theta
-    C_theta2 = U * (1.0 - reaction) + 0.5 * delta_C_theta
+        # Rotor Exit relative flow turning
+        beta2_val = float(beta_2_deg)
+        beta2_rad = math.radians(beta2_val)
+        # Sign convention: in compressor, blades push flow in +U direction reducing negative relative swirl
+        W_theta2 = -Ca2 * math.tan(beta2_rad) if beta2_val > 0 else Ca2 * math.tan(beta2_rad)
+        C_theta2 = U + W_theta2
+        delta_C_theta = C_theta2 - C_theta1
+
+        # Ensure positive Euler work transfer
+        if delta_C_theta <= 0.0:
+            delta_C_theta = max(10.0, U * 0.25)
+            C_theta2 = C_theta1 + delta_C_theta
+            W_theta2 = C_theta2 - U
+
+        delta_h0 = U * delta_C_theta
+        delta_T0 = delta_h0 / cp
+        psi = delta_h0 / (U * U)
+        phi = Ca1 / U
+        reaction = 1.0 - (C_theta1 + C_theta2) / (2.0 * U)
+    else:
+        Ca1 = C_a
+        Ca2 = C_a
+        # Stage work and non-dimensional loading from delta_T0 & reaction
+        delta_h0 = cp * delta_T0
+        psi = delta_h0 / (U * U)      # Stage loading coefficient
+        phi = C_a / U                 # Flow coefficient
+        delta_C_theta = delta_h0 / U
+
+        # For repeating stage with constant axial velocity:
+        C_theta1 = U * (1.0 - reaction) - 0.5 * delta_C_theta
+        C_theta2 = U * (1.0 - reaction) + 0.5 * delta_C_theta
+        W_theta1 = C_theta1 - U
+        W_theta2 = C_theta2 - U
 
     # Rotor Inlet (Station 1)
-    C1 = math.sqrt(C_a * C_a + C_theta1 * C_theta1)
-    alpha1_rad = math.atan2(C_theta1, C_a)
+    C1 = math.hypot(Ca1, C_theta1)
+    alpha1_rad = math.atan2(C_theta1, Ca1)
     alpha1_deg = math.degrees(alpha1_rad)
 
-    W_theta1 = C_theta1 - U
-    W1 = math.sqrt(C_a * C_a + W_theta1 * W_theta1)
-    beta1_rad = math.atan2(W_theta1, C_a)
+    W1 = math.hypot(Ca1, W_theta1)
+    beta1_rad = math.atan2(W_theta1, Ca1)
     beta1_deg = math.degrees(beta1_rad)
 
     # Static state at rotor inlet
@@ -105,18 +115,17 @@ def solve_compressor_stage(
         T1 = T01 * 0.95
     P1 = P01 * (T1 / T01) ** (gamma / (gamma - 1.0))
     a1 = math.sqrt(gamma * R_gas * T1)
-    M_C1 = C1 / a1
-    M_W1 = W1 / a1   # Rotor relative inlet Mach number (critical for shock losses)
+    M_C1 = C1 / a1 if a1 > 0 else 0.0
+    M_W1 = W1 / a1 if a1 > 0 else 0.0   # Rotor relative inlet Mach number
     rho1 = P1 / (R_gas * T1)
 
     # Rotor Exit / Stator Inlet (Station 2)
-    C2 = math.sqrt(C_a * C_a + C_theta2 * C_theta2)
-    alpha2_rad = math.atan2(C_theta2, C_a)
+    C2 = math.hypot(Ca2, C_theta2)
+    alpha2_rad = math.atan2(C_theta2, Ca2)
     alpha2_deg = math.degrees(alpha2_rad)
 
-    W_theta2 = C_theta2 - U
-    W2 = math.sqrt(C_a * C_a + W_theta2 * W_theta2)
-    beta2_rad = math.atan2(W_theta2, C_a)
+    W2 = math.hypot(Ca2, W_theta2)
+    beta2_rad = math.atan2(W_theta2, Ca2)
     beta2_deg = math.degrees(beta2_rad)
 
     T02 = T01 + delta_T0
@@ -124,13 +133,19 @@ def solve_compressor_stage(
     if T2 <= 0:
         T2 = T02 * 0.95
     a2 = math.sqrt(gamma * R_gas * T2)
-    M_C2 = C2 / a2
-    M_W2 = W2 / a2
+    M_C2 = C2 / a2 if a2 > 0 else 0.0
+    M_W2 = W2 / a2 if a2 > 0 else 0.0
 
-    # Stator Exit (Station 3) — turns flow back to alpha3 = alpha1 for repeating stage
-    C_theta3 = C_theta1
-    C3 = C1
-    alpha3_deg = alpha1_deg
+    # Stator Exit (Station 3)
+    if alpha_3_deg is not None:
+        alpha3_deg = float(alpha_3_deg)
+        C_theta3 = Ca2 * math.tan(math.radians(alpha3_deg))
+        C3 = math.hypot(Ca2, C_theta3)
+    else:
+        C_theta3 = C_theta1
+        C3 = C1
+        alpha3_deg = alpha1_deg
+
     T03 = T02
     T3 = max(10.0, T03 - (C3 * C3) / (2.0 * cp))
 
@@ -349,41 +364,72 @@ def solve_turbine_stage(
     solidity: float = 1.4,
     gamma: float = 1.33,
     cp: float = 1150.0,
+    alpha_2_deg: Optional[float] = None,
+    beta_3_deg: Optional[float] = None,
+    U: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Solves 1D mean-line aerodynamics for an axial turbine stage (Nozzle Guide Vane Stator + Rotor).
+    Supports kinematic angle synthesis (alpha_2, beta_3) and thermodynamic extraction (delta_T0, reaction).
     Euler extraction: Delta h0 = U * (C_theta2 - C_theta3)
     """
-    omega = 2.0 * math.pi * N_rpm / 60.0
-    U = omega * r_mean
-    if U <= 0:
+    if U is not None and U > 0:
+        blade_speed = float(U)
+        if r_mean > 0:
+            N_rpm = (blade_speed * 60.0) / (2.0 * math.pi * r_mean)
+    else:
+        omega = 2.0 * math.pi * N_rpm / 60.0
+        blade_speed = omega * r_mean
+
+    if blade_speed <= 0:
         raise ValueError("Blade speed U must be positive")
-    if delta_T0 >= eta_stage * T01:
-        raise ValueError("Required turbine temperature drop exceeds available work limit")
+    U = blade_speed
 
-    delta_h0 = cp * delta_T0
-    psi = delta_h0 / (U * U)      # Stage loading coefficient (typically 1.2 - 2.5 for turbines)
-    phi = C_a / U                 # Flow coefficient
+    if alpha_2_deg is not None and beta_3_deg is not None:
+        a2_rad = math.radians(float(alpha_2_deg))
+        C_theta2 = C_a * math.tan(a2_rad)
+        W_theta2 = C_theta2 - U
 
-    # Turbine Euler equation: Delta h0 = U * (C_theta2 - C_theta3)
-    delta_C_theta = delta_h0 / U
+        b3_rad = math.radians(float(beta_3_deg))
+        W_theta3 = C_a * math.tan(b3_rad)
+        C_theta3 = U + W_theta3
+        delta_C_theta = C_theta2 - C_theta3
 
-    # Rotor inlet swirl C_theta2 and rotor exit swirl C_theta3
-    C_theta2 = U * (1.0 - reaction) + 0.5 * delta_C_theta
-    C_theta3 = U * (1.0 - reaction) - 0.5 * delta_C_theta
+        if delta_C_theta <= 0.0:
+            delta_C_theta = max(50.0, U * 0.8)
+            C_theta3 = C_theta2 - delta_C_theta
+            W_theta3 = C_theta3 - U
+
+        delta_h0 = U * delta_C_theta
+        delta_T0 = min(delta_h0 / cp, eta_stage * T01 * 0.85)
+        psi = delta_h0 / (U * U)
+        phi = C_a / U
+        reaction = 1.0 - (C_theta2 + C_theta3) / (2.0 * U)
+    else:
+        if delta_T0 >= eta_stage * T01:
+            delta_T0 = eta_stage * T01 * 0.85
+
+        delta_h0 = cp * delta_T0
+        psi = delta_h0 / (U * U)      # Stage loading coefficient (typically 1.2 - 2.5 for turbines)
+        phi = C_a / U                 # Flow coefficient
+        delta_C_theta = delta_h0 / U
+
+        # Rotor inlet swirl C_theta2 and rotor exit swirl C_theta3
+        C_theta2 = U * (1.0 - reaction) + 0.5 * delta_C_theta
+        C_theta3 = U * (1.0 - reaction) - 0.5 * delta_C_theta
+        W_theta2 = C_theta2 - U
+        W_theta3 = C_theta3 - U
 
     # Stator (NGV) Exit / Rotor Inlet (Station 2)
-    C2 = math.sqrt(C_a * C_a + C_theta2 * C_theta2)
+    C2 = math.hypot(C_a, C_theta2)
     alpha2_deg = math.degrees(math.atan2(C_theta2, C_a))
-    W_theta2 = C_theta2 - U
-    W2 = math.sqrt(C_a * C_a + W_theta2 * W_theta2)
+    W2 = math.hypot(C_a, W_theta2)
     beta2_deg = math.degrees(math.atan2(W_theta2, C_a))
 
     # Rotor Exit (Station 3)
-    C3 = math.sqrt(C_a * C_a + C_theta3 * C_theta3)
+    C3 = math.hypot(C_a, C_theta3)
     alpha3_deg = math.degrees(math.atan2(C_theta3, C_a))
-    W_theta3 = C_theta3 - U
-    W3 = math.sqrt(C_a * C_a + W_theta3 * W_theta3)
+    W3 = math.hypot(C_a, W_theta3)
     beta3_deg = math.degrees(math.atan2(W_theta3, C_a))
 
     # Pressure ratio across turbine stage

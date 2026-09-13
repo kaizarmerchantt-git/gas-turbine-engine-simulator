@@ -51,11 +51,22 @@ KEY_OUTPUTS = [
     "FAR",    # fuel-air ratio
     "N1",     # LP spool speed [rpm or corrected]
     "N2",     # HP spool speed
-    "burner:tot:T",  # turbine inlet temperature [R]
-    "hpc:tot:T",     # HPC exit temperature [R]
-    "lpt:tot:T",     # LPT exit temperature [R]
+    "inlet:tot:T",   # inlet total temperature [R]
+    "inlet:tot:P",   # inlet total pressure [atm]
+    "fan:tot:T",     # fan exit total temperature [R]
     "fan:tot:P",     # fan exit total pressure [atm]
+    "lpc:tot:T",     # LPC exit total temperature [R]
+    "lpc:tot:P",     # LPC exit total pressure [atm]
+    "hpc:tot:T",     # HPC exit total temperature [R]
     "hpc:tot:P",     # HPC exit total pressure [atm]
+    "burner:tot:T",  # turbine inlet temperature [R]
+    "burner:tot:P",  # combustor exit total pressure [atm]
+    "hpt:tot:T",     # HPT exit total temperature [R]
+    "hpt:tot:P",     # HPT exit total pressure [atm]
+    "lpt:tot:T",     # LPT exit total temperature [R]
+    "lpt:tot:P",     # LPT exit total pressure [atm]
+    "fc:stat:P",     # freestream static pressure [atm]
+    "fc:stat:T",     # freestream static temperature [R]
 ]
 
 # ── Deck envelope (for frontend range validation) ────────────────────────────

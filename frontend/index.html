@@ -34,17 +34,63 @@
     }
     .h-logo { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 700; flex-shrink: 0; }
     .h-sub  { font-size: 11px; color: var(--muted); margin-left: 6px; }
-    .eng-tabs { display: flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: 7px; overflow-x: auto; max-width: calc(100vw - 320px); scrollbar-width: thin; flex-shrink: 1; }
-    .eng-tab { padding: 5px 15px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); background: transparent; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
-    .eng-tab:hover { color: var(--text); border-color: var(--border); }
-    .eng-tab.tj { background: rgba(88,166,255,.15); color: var(--acc1); border-color: var(--acc1); }
-    .eng-tab.tf { background: rgba(63,185,80,.15);  color: var(--acc2); border-color: var(--acc2); }
-    .eng-tab.od { background: rgba(227,179,65,.15); color: #e3b341; border-color: #e3b341; }
-    .eng-tab.ml { background: rgba(56,217,169,.15); color: #38d9a9; border-color: #38d9a9; }
-    .eng-tab.tp { background: rgba(255,146,43,.15);  color: #ff922b; border-color: #ff922b; }
-    .eng-tab.ms { background: rgba(177,151,252,.15); color: #b197fc; border-color: #b197fc; }
-    .eng-tab.sg { background: rgba(240,101,149,.15); color: #f06595; border-color: #f06595; }
-    .eng-tab.hy { background: rgba(32,201,151,.15);  color: #20c997; border-color: #20c997; }
+    .module-nav-container { display: flex; align-items: center; }
+    .module-select-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 12px 0 34px;
+      transition: all .2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .module-select-wrapper:hover, .module-select-wrapper:focus-within {
+      border-color: var(--acc1);
+      box-shadow: 0 0 0 2px rgba(88,166,255,0.25);
+    }
+    .module-icon {
+      position: absolute;
+      left: 12px;
+      pointer-events: none;
+      font-size: 14px;
+      color: var(--acc1);
+    }
+    .module-dropdown {
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #f0f6fc;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 24px 8px 0;
+      cursor: pointer;
+      min-width: 420px;
+      font-family: inherit;
+    }
+    .module-dropdown optgroup {
+      background: var(--surface);
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .module-dropdown option {
+      background: #161b22;
+      color: #e6edf3;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 10px;
+    }
+    .module-dropdown-arrow {
+      position: absolute;
+      right: 10px;
+      pointer-events: none;
+      color: var(--muted);
+      font-size: 13px;
+    }
 
     .grid { display: grid; grid-template-columns: 330px 1fr; flex: 1; min-height: 0; }
     .sidebar { border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -267,19 +313,25 @@ function StationTable({ stations }) {
         <tbody>
           {ORDER.filter(id => stations[id]).map(id => {
             const s = stations[id];
-            const p0_val = s.p_kPa != null ? s.p_kPa : (s.P_atm != null ? s.P_atm * 101.325 : null);
+            const mach_val = s.Mach != null ? s.Mach : (s.M != null ? s.M : null);
+            const t0_val = s.T_K != null ? s.T_K : (s.T_total_K != null ? s.T_total_K : null);
+            const p0_val = s.p_kPa != null ? s.p_kPa : (s.P_total_kPa != null ? s.P_total_kPa : (s.P_atm != null ? s.P_atm * 101.325 : null));
+            const ts_val = s.Ts_K != null ? s.Ts_K : (s.T_static_K != null ? s.T_static_K : (t0_val != null && mach_val != null ? t0_val / (1.0 + 0.2 * mach_val * mach_val) : null));
+            const ps_val = s.ps_kPa != null ? s.ps_kPa : (s.P_static_kPa != null ? s.P_static_kPa : (p0_val != null && mach_val != null ? p0_val / Math.pow(1.0 + 0.2 * mach_val * mach_val, 3.5) : null));
+            const v_val = s.V_ms != null ? s.V_ms : (mach_val != null && ts_val != null ? mach_val * Math.sqrt(1.4 * 287.05 * Math.max(10, ts_val)) : null);
+            const s_val = s.s_JkgK != null ? s.s_JkgK : null;
             return (
               <React.Fragment key={id}>
                 <tr>
                   <td><strong>{id}</strong></td>
                   <td className="lbl">{s.label}</td>
-                  <td>{fmt(s.Mach, 3)}</td>
-                  <td>{s.V_ms != null ? fmt(s.V_ms, 1) : "—"}</td>
-                  <td className={s.T_K > 700 ? "hot" : "cool"}>{fmt(s.T_K, 1)}</td>
-                  <td>{s.Ts_K != null ? fmt(s.Ts_K, 1) : "—"}</td>
+                  <td>{mach_val != null ? fmt(mach_val, 3) : "—"}</td>
+                  <td>{v_val != null ? fmt(v_val, 1) : "—"}</td>
+                  <td className={t0_val > 700 ? "hot" : "cool"}>{t0_val != null ? fmt(t0_val, 1) : "—"}</td>
+                  <td>{ts_val != null ? fmt(ts_val, 1) : "—"}</td>
                   <td>{p0_val != null ? fmt(p0_val, 1) : "—"}</td>
-                  <td>{s.ps_kPa != null ? fmt(s.ps_kPa, 1) : "—"}</td>
-                  <td>{s.s_JkgK != null ? fmt(s.s_JkgK, 0) : "—"}</td>
+                  <td>{ps_val != null ? fmt(ps_val, 1) : "—"}</td>
+                  <td>{s_val != null ? fmt(s_val, 0) : "—"}</td>
                 </tr>
                 {s.combustion_metrics && (
                   <tr style={{backgroundColor: "rgba(255,255,255,0.03)"}}>
@@ -287,23 +339,23 @@ function StationTable({ stations }) {
                       <div style={{display: "flex", flexWrap: "wrap", gap: "20px", fontSize: "11px"}}>
                         <div className="field">
                           <label>Combustion State</label>
-                          <span style={{color: "var(--acc1)", fontWeight: "bold"}}>{s.combustion_metrics.burn_state} (Φ = {s.combustion_metrics.equivalence_ratio.toFixed(3)})</span>
+                          <span style={{color: "var(--acc1)", fontWeight: "bold"}}>{s.combustion_metrics.burn_state} (Φ = {Number(s.combustion_metrics.equivalence_ratio).toFixed(3)})</span>
                         </div>
                         <div className="field">
                           <label>Fuel-Air Ratio</label>
-                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.fuel_air_ratio.toFixed(4)}</span>
+                          <span style={{fontFamily: "var(--mono)"}}>{Number(s.combustion_metrics.fuel_air_ratio).toFixed(4)}</span>
                         </div>
                         <div className="field">
                           <label>EI NOx</label>
-                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.NOx.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                          <span style={{fontFamily: "var(--mono)"}}>{Number(s.combustion_metrics.emissions_EI?.NOx ?? 0).toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
                         </div>
                         <div className="field">
                           <label>EI CO</label>
-                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                          <span style={{fontFamily: "var(--mono)"}}>{Number(s.combustion_metrics.emissions_EI?.CO ?? 0).toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
                         </div>
                         <div className="field">
                           <label>EI CO₂</label>
-                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO2.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                          <span style={{fontFamily: "var(--mono)"}}>{Number(s.combustion_metrics.emissions_EI?.CO2 ?? 0).toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
                         </div>
                       </div>
                     </td>
@@ -319,9 +371,28 @@ function StationTable({ stations }) {
 }
 
 /* ── T-s Diagram ─────────────────────────────────────────────────────────── */
-function TsDiagram({ tsData }) {
+function TsDiagram({ tsData, stations }) {
   const ref  = useRef();
-  const pts  = tsData?.points ?? [];
+  let pts = tsData?.points;
+  if ((!pts || pts.length === 0) && stations) {
+    const ORDER = ["0", "a", "1", "2", "13", "21", "25", "3", "4", "41", "45", "5", "8", "9", "18", "19"];
+    pts = [];
+    for (const sid of ORDER) {
+      if (stations[sid]) {
+        const s = stations[sid];
+        pts.push({
+          station: sid,
+          label: s.label || `Station ${sid}`,
+          T_K: s.T_K ?? s.T_total_K ?? 300,
+          s_JkgK: s.s_JkgK ?? 1000,
+          P_atm: s.P_atm ?? (s.p_kPa ? s.p_kPa / 101.325 : 1.0),
+          h_Jkg: s.h_Jkg ?? 0.0,
+          stream: (sid === "13" || sid === "18" || sid === "19") ? "bypass" : "core",
+        });
+      }
+    }
+  }
+  pts = pts ?? [];
 
   const hasBypass = pts.some(p => p.stream === "bypass");
   const corePts   = hasBypass ? pts.filter(p => p.stream !== "bypass") : pts;
@@ -777,6 +848,10 @@ function TurbojetPanel() {
 
   const reset = () => { setP(TJ_DEF); setResult(null); setTsData(null); setSweepData(null); setError(null); };
 
+  useEffect(() => {
+    runSingle();
+  }, []);
+
   return (
     <div className="grid">
       {/* ── sidebar ──────────────────────────────── */}
@@ -967,7 +1042,7 @@ function TurbojetPanel() {
             {tsLoading && (
               <div className="alert a-info"><span className="spin"/>&nbsp; Fetching T–s diagram data…</div>
             )}
-            {tsData && <TsDiagram tsData={tsData}/>}
+            {(tsData || result?.stations) && <TsDiagram tsData={tsData} stations={result?.stations}/>}
           </>
         )}
 
@@ -1058,6 +1133,10 @@ function TurbofanPanel() {
   };
 
   const reset = () => { setP(TF_DEF); setResult(null); setSweepData(null); setError(null); };
+
+  useEffect(() => {
+    runSingle();
+  }, []);
 
   return (
     <div className="grid">
@@ -1226,6 +1305,14 @@ function TurbofanPanel() {
                 </tbody>
               </table>
             </div>
+            {result.stations && (
+              <div className="card">
+                <div className="card-hd">ARP 755A Station Thermodynamics (Deck Derived)</div>
+                <div className="card-bd" style={{padding:0}}>
+                  <StationTable stations={result.stations}/>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -1340,6 +1427,10 @@ function PhysicsTurbofanPanel() {
   };
 
   const reset = () => { setP(PTF_DEF); setResult(null); setTsData(null); setSweepData(null); setError(null); };
+
+  useEffect(() => {
+    runSingle();
+  }, []);
 
   return (
     <div className="grid">
@@ -1574,7 +1665,7 @@ function PhysicsTurbofanPanel() {
             {tsLoading && (
               <div className="alert a-info"><span className="spin"/>&nbsp; Fetching T–s diagram data…</div>
             )}
-            {tsData && <TsDiagram tsData={tsData}/>}
+            {(tsData || result?.stations) && <TsDiagram tsData={tsData} stations={result?.stations}/>}
           </>
         )}
 
@@ -1691,6 +1782,14 @@ function OffDesignPanel() {
   const runSingle = async () => {
     setLoading(true); setError(null); setResult(null);
     try {
+      if (!mapData) {
+        try {
+          const mapRes = await fetch(`${API}/api/off_design/compressor_map`);
+          if (mapRes.ok) {
+            setMapData(await mapRes.json());
+          }
+        } catch (_) {}
+      }
       const res = await post("/api/off_design/single", makeSingleBody());
       setResult(res);
     } catch(e) { setError(e.message); }
@@ -1725,6 +1824,10 @@ function OffDesignPanel() {
     setSweepData(null);
     setError(null);
   };
+
+  useEffect(() => {
+    runSingle();
+  }, []);
 
   return (
     <div className="grid">
@@ -1967,25 +2070,40 @@ function VelocityTrianglesSvg({ inlet, exit, type = "compressor" }) {
   const Ca2 = exit.C_a ?? exit.Ca ?? 175;
   const Ctheta2 = exit.C_theta ?? exit.Ctheta ?? 120;
   
-  const maxVel = Math.max(U, Ca1, Ca2, Math.abs(Ctheta2), Math.abs(inlet.W || 300), Math.abs(exit.W || 200)) || 350;
+  const allVals = [
+    U, Ca1, Ca2,
+    Math.abs(Ctheta1), Math.abs(Ctheta2),
+    Math.abs(inlet.C || 0), Math.abs(exit.C || 0),
+    Math.abs(inlet.W || 0), Math.abs(exit.W || 0),
+    Math.abs(inlet.W_theta || 0), Math.abs(exit.W_theta || 0)
+  ];
+  const maxVel = Math.max(...allVals, 100);
   const scale = 110 / maxVel;
   
-  const y0 = 190;
-  const x1_start = 60;
+  const y0 = 195;
+  const x1_start = 75;
   const u1_len = U * scale;
   const ca1_len = Ca1 * scale;
   const ct1_len = Ctheta1 * scale;
   
-  const x2_start = 360;
+  const x2_start = 375;
   const u2_len = U * scale;
   const ca2_len = Ca2 * scale;
   const ct2_len = Ctheta2 * scale;
+
+  const isTurb = type === "turbine";
+  const st1Label = isTurb ? "Station 2: Stator Exit (NGV)" : "Station 1: Rotor Inlet";
+  const st2Label = isTurb ? "Station 3: Rotor Exit" : "Station 2: Rotor Exit";
+  const c1Text = isTurb ? `C₂=${fmt(inlet.C,0)} (α₂=${fmt(inlet.alpha_deg,1)}°)` : `C₁=${fmt(inlet.C,0)} (α₁=${fmt(inlet.alpha_deg,1)}°)`;
+  const w1Text = isTurb ? `W₂=${fmt(inlet.W,0)} (β₂=${fmt(inlet.beta_deg,1)}°)` : `W₁=${fmt(inlet.W,0)} (β₁=${fmt(inlet.beta_deg,1)}°)`;
+  const c2Text = isTurb ? `C₃=${fmt(exit.C,0)} (α₃=${fmt(exit.alpha_deg,1)}°)` : `C₂=${fmt(exit.C,0)} (α₂=${fmt(exit.alpha_deg,1)}°)`;
+  const w2Text = isTurb ? `W₃=${fmt(exit.W,0)} (β₃=${fmt(exit.beta_deg,1)}°)` : `W₂=${fmt(exit.W,0)} (β₂=${fmt(exit.beta_deg,1)}°)`;
   
   return (
     <div className="card" style={{marginTop: 14}}>
       <div className="card-hd">Mean-Line Velocity Triangles (Euler Turbomachinery)</div>
       <div className="card-bd" style={{background: "#11151c", padding: 12}}>
-        <svg viewBox="0 0 640 240" style={{width: "100%", maxHeight: 240}}>
+        <svg viewBox="0 0 660 240" style={{width: "100%", maxHeight: 240}}>
           <defs>
             <marker id="arr-u" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
               <path d="M0,0 L6,3 L0,6 Z" fill="#e3b341" />
@@ -2008,23 +2126,23 @@ function VelocityTrianglesSvg({ inlet, exit, type = "compressor" }) {
             <text x="342" y="4" fill="#3fb950" fontSize="11" fontFamily="var(--mono)">W (Relative vel)</text>
           </g>
 
-          {/* Station 1: Rotor Inlet */}
-          <text x={x1_start + 20} y="55" fill="var(--muted)" fontSize="12" fontWeight="700">Station 1: Rotor Inlet</text>
+          {/* Station 1 */}
+          <text x={x1_start + 10} y="55" fill="var(--muted)" fontSize="12" fontWeight="700">{st1Label}</text>
           <line x1={x1_start} y1={y0} x2={x1_start + u1_len} y2={y0} stroke="#e3b341" strokeWidth="2.5" markerEnd="url(#arr-u)"/>
           <text x={x1_start + u1_len/2 - 10} y={y0 + 16} fill="#e3b341" fontSize="11" fontFamily="var(--mono)">U={fmt(U,0)}</text>
           <line x1={x1_start} y1={y0} x2={x1_start + ct1_len} y2={y0 - ca1_len} stroke="#58a6ff" strokeWidth="2.5" markerEnd="url(#arr-c)"/>
-          <text x={x1_start + ct1_len/2 - 25} y={y0 - ca1_len/2} fill="#58a6ff" fontSize="11" fontFamily="var(--mono)">C₁={fmt(inlet.C,0)} (α₁={fmt(inlet.alpha_deg,1)}°)</text>
+          <text x={x1_start + ct1_len/2 - 25} y={y0 - ca1_len/2} fill="#58a6ff" fontSize="11" fontFamily="var(--mono)">{c1Text}</text>
           <line x1={x1_start + u1_len} y1={y0} x2={x1_start + ct1_len} y2={y0 - ca1_len} stroke="#3fb950" strokeWidth="2.5" markerEnd="url(#arr-w)"/>
-          <text x={x1_start + u1_len/2 + 10} y={y0 - ca1_len/2} fill="#3fb950" fontSize="11" fontFamily="var(--mono)">W₁={fmt(inlet.W,0)} (β₁={fmt(inlet.beta_deg,1)}°)</text>
+          <text x={x1_start + u1_len/2 + 10} y={y0 - ca1_len/2} fill="#3fb950" fontSize="11" fontFamily="var(--mono)">{w1Text}</text>
 
-          {/* Station 2: Rotor Exit */}
-          <text x={x2_start + 20} y="55" fill="var(--muted)" fontSize="12" fontWeight="700">Station 2: Rotor Exit</text>
+          {/* Station 2 */}
+          <text x={x2_start + 10} y="55" fill="var(--muted)" fontSize="12" fontWeight="700">{st2Label}</text>
           <line x1={x2_start} y1={y0} x2={x2_start + u2_len} y2={y0} stroke="#e3b341" strokeWidth="2.5" markerEnd="url(#arr-u)"/>
           <text x={x2_start + u2_len/2 - 10} y={y0 + 16} fill="#e3b341" fontSize="11" fontFamily="var(--mono)">U={fmt(U,0)}</text>
           <line x1={x2_start} y1={y0} x2={x2_start + ct2_len} y2={y0 - ca2_len} stroke="#58a6ff" strokeWidth="2.5" markerEnd="url(#arr-c)"/>
-          <text x={x2_start + ct2_len/2 - 35} y={y0 - ca2_len/2 - 10} fill="#58a6ff" fontSize="11" fontFamily="var(--mono)">C₂={fmt(exit.C,0)} (α₂={fmt(exit.alpha_deg,1)}°)</text>
+          <text x={x2_start + ct2_len/2 - 35} y={y0 - ca2_len/2 - 10} fill="#58a6ff" fontSize="11" fontFamily="var(--mono)">{c2Text}</text>
           <line x1={x2_start + u2_len} y1={y0} x2={x2_start + ct2_len} y2={y0 - ca2_len} stroke="#3fb950" strokeWidth="2.5" markerEnd="url(#arr-w)"/>
-          <text x={x2_start + u2_len/2 + 20} y={y0 - ca2_len/2} fill="#3fb950" fontSize="11" fontFamily="var(--mono)">W₂={fmt(exit.W,0)} (β₂={fmt(exit.beta_deg,1)}°)</text>
+          <text x={x2_start + u2_len/2 + 20} y={y0 - ca2_len/2} fill="#3fb950" fontSize="11" fontFamily="var(--mono)">{w2Text}</text>
         </svg>
       </div>
     </div>
@@ -2143,6 +2261,15 @@ function MeanLinePanel() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    solve();
+  }, [
+    mode,
+    compParams.U, compParams.C_a1, compParams.C_a2, compParams.alpha_1_deg, compParams.beta_2_deg, compParams.alpha_3_deg, compParams.r_mean, compParams.mdot, compParams.eta_stage,
+    multiParams.num_stages, multiParams.U_mean, multiParams.C_a, multiParams.delta_T0_stage, multiParams.r_mean, multiParams.mdot, multiParams.eta_stage,
+    turbParams.U, turbParams.C_a, turbParams.alpha_2_deg, turbParams.beta_3_deg, turbParams.T01, turbParams.eta_stage
+  ]);
 
   return (
     <div className="grid">
@@ -2457,6 +2584,10 @@ function TurbopropPanel() {
     }
   };
 
+  useEffect(() => {
+    runSingle();
+  }, []);
+
   return (
     <div className="grid">
       <div className="sidebar">
@@ -2738,6 +2869,10 @@ function MissionPanel() {
     }
   };
 
+  useEffect(() => {
+    runMission();
+  }, []);
+
   return (
     <div className="grid">
       <div className="sidebar">
@@ -2958,9 +3093,10 @@ function SurrogatePanel() {
     }
   };
 
-  // Evaluate initial point on load
+  // Evaluate initial point and surface curve on load
   useEffect(() => {
     evaluatePoint();
+    generateSurface();
   }, []);
 
   return (
@@ -3748,34 +3884,39 @@ function App() {
 
         
         
-        <div className="eng-tabs">
-          <button className={`eng-tab ${engine==="turbojet"?"tj":""}`} onClick={()=>setEngine("turbojet")}>
-            ✈ Turbojet
-          </button>
-          <button className={`eng-tab ${engine==="physics_tf"?"tj":""}`} onClick={()=>setEngine("physics_tf")}>
-            ✈ Physics Turbofan
-          </button>
-          <button className={`eng-tab ${engine==="turbofan"?"tf":""}`} onClick={()=>setEngine("turbofan")}>
-            ✈ CF34 Turbofan
-          </button>
-          <button className={`eng-tab ${engine==="off_design"?"od":""}`} onClick={()=>setEngine("off_design")}>
-            ⚙ Off-Design
-          </button>
-          <button className={`eng-tab ${engine==="meanline"?"ml":""}`} onClick={()=>setEngine("meanline")}>
-            📐 Mean-Line
-          </button>
-          <button className={`eng-tab ${engine==="turboprop"?"tp":""}`} onClick={()=>setEngine("turboprop")}>
-            🚁 Turboprop
-          </button>
-          <button className={`eng-tab ${engine==="mission"?"ms":""}`} onClick={()=>setEngine("mission")}>
-            🛫 Mission
-          </button>
-          <button className={`eng-tab ${engine==="surrogate"?"sg":""}`} onClick={()=>setEngine("surrogate")}>
-            ⚡ Surrogate
-          </button>
-          <button className={`eng-tab ${engine==="hybrid"?"hy":""}`} onClick={()=>setEngine("hybrid")}>
-            ⚡ Hybrid Electric
-          </button>
+        <div className="module-nav-container">
+          <div className="module-select-wrapper">
+            <span className="module-icon">
+              {engine === "turbojet" || engine === "physics_tf" || engine === "turbofan" ? "✈" :
+               engine === "off_design" ? "⚙" :
+               engine === "meanline" ? "📐" :
+               engine === "turboprop" ? "🚁" :
+               engine === "mission" ? "🛫" : "⚡"}
+            </span>
+            <select
+              className="module-dropdown"
+              value={engine}
+              onChange={e => setEngine(e.target.value)}
+              aria-label="Select Engine Simulation Module"
+            >
+              <optgroup label="Gas Turbine Brayton Cycles">
+                <option value="turbojet">✈  Turbojet (Cantera Brayton Equilibrium Cycle)</option>
+                <option value="physics_tf">✈  Physics Turbofan (Two-Spool High-Bypass, Twin Nozzle)</option>
+                <option value="turbofan">✈  CF34 Turbofan (Empirical Flight Envelope Deck)</option>
+              </optgroup>
+              <optgroup label="Aerodynamics &amp; Turbomachinery">
+                <option value="off_design">⚙  Off-Design (Component Matching &amp; Surge Margin)</option>
+                <option value="meanline">📐  Mean-Line (1D Velocity Triangles &amp; Annulus Staging)</option>
+                <option value="turboprop">🚁  Turboprop (Free Power Turbine &amp; Propeller Dynamics)</option>
+              </optgroup>
+              <optgroup label="Mission Operations &amp; Future Propulsion">
+                <option value="mission">🛫  Flight Mission (Aircraft Drag Polar &amp; Fuel Burn Profile)</option>
+                <option value="surrogate">⚡  Surrogate Model (High-Speed Multi-Output Response Surface)</option>
+                <option value="hybrid">⚡  Hybrid Electric (Parallel / Series Powertrain &amp; Battery SoC)</option>
+              </optgroup>
+            </select>
+            <span className="module-dropdown-arrow">▾</span>
+          </div>
         </div>
       </header>
 
