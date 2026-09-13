@@ -29,11 +29,11 @@
     .shell { display: flex; flex-direction: column; min-height: 100vh; }
     header {
       background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 0 20px; height: 54px; display: flex; align-items: center;
+      padding: 6px 20px; min-height: 56px; display: flex; align-items: center;
       justify-content: space-between; position: sticky; top: 0; z-index: 200;
     }
-    .h-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; flex-shrink: 0; }
-    .h-sub  { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    .h-logo { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 700; flex-shrink: 0; }
+    .h-sub  { font-size: 11px; color: var(--muted); margin-left: 6px; }
     .eng-tabs { display: flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: 7px; overflow-x: auto; max-width: calc(100vw - 320px); scrollbar-width: thin; flex-shrink: 1; }
     .eng-tab { padding: 5px 15px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); background: transparent; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
     .eng-tab:hover { color: var(--text); border-color: var(--border); }
@@ -180,7 +180,7 @@
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
-const API = "http://localhost:8000";
+const API = (window.location.protocol.startsWith("http")) ? window.location.origin : "http://localhost:8000";
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 const fmt = (v, dp=2) => (v==null||isNaN(v)) ? "—" : Number(v).toFixed(dp);
@@ -247,61 +247,74 @@ function KPI({ label, value, unit, cls="" }) {
 /* ── Station table ───────────────────────────────────────────────────────── */
 function StationTable({ stations }) {
   if (!stations) return null;
-  const ORDER = ["a", "1", "2", "13", "21", "3", "4", "41", "5", "8", "18"];
+  const ORDER = ["0", "a", "1", "2", "13", "21", "25", "3", "4", "41", "45", "5", "8", "9", "18", "19"];
   return (
-    <table className="st-table">
-      <thead>
-        <tr>
-          <th>Stn</th><th>Name</th><th>Mach</th>
-          <th>T [K]</th><th>P [atm]</th><th>s [J/kg&middot;K]</th>
-        </tr>
-      </thead>
-      <tbody>
-        {ORDER.filter(id => stations[id]).map(id => {
-          const s = stations[id];
-          return (
-            <React.Fragment key={id}>
-              <tr>
-                <td><strong>{id}</strong></td>
-                <td className="lbl">{s.label}</td>
-                <td>{fmt(s.Mach,3)}</td>
-                <td className={s.T_K > 700 ? "hot" : "cool"}>{fmt(s.T_K,0)}</td>
-                <td>{fmt(s.P_atm,3)}</td>
-                <td>{s.s_JkgK != null ? fmt(s.s_JkgK,0) : "—"}</td>
-              </tr>
-              {s.combustion_metrics && (
-                <tr style={{backgroundColor: "rgba(255,255,255,0.03)"}}>
-                  <td colSpan="6" style={{padding: "10px 14px", borderBottom: "1px solid rgba(48,54,61,.5)"}}>
-                    <div style={{display: "flex", flexWrap: "wrap", gap: "20px", fontSize: "11px"}}>
-                      <div className="field">
-                        <label>Combustion State</label>
-                        <span style={{color: "var(--acc1)", fontWeight: "bold"}}>{s.combustion_metrics.burn_state} (Φ = {s.combustion_metrics.equivalence_ratio.toFixed(3)})</span>
-                      </div>
-                      <div className="field">
-                        <label>Fuel-Air Ratio</label>
-                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.fuel_air_ratio.toFixed(4)}</span>
-                      </div>
-                      <div className="field">
-                        <label>EI NOx</label>
-                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.NOx.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
-                      </div>
-                      <div className="field">
-                        <label>EI CO</label>
-                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
-                      </div>
-                      <div className="field">
-                        <label>EI CO₂</label>
-                        <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO2.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
-                      </div>
-                    </div>
-                  </td>
+    <div style={{overflowX: "auto"}}>
+      <table className="st-table">
+        <thead>
+          <tr>
+            <th>Stn</th>
+            <th>Station Name</th>
+            <th>Mach</th>
+            <th>V [m/s]</th>
+            <th>T₀ [K]</th>
+            <th>Ts [K]</th>
+            <th>p₀ [kPa]</th>
+            <th>ps [kPa]</th>
+            <th>s [J/kg&middot;K]</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ORDER.filter(id => stations[id]).map(id => {
+            const s = stations[id];
+            const p0_val = s.p_kPa != null ? s.p_kPa : (s.P_atm != null ? s.P_atm * 101.325 : null);
+            return (
+              <React.Fragment key={id}>
+                <tr>
+                  <td><strong>{id}</strong></td>
+                  <td className="lbl">{s.label}</td>
+                  <td>{fmt(s.Mach, 3)}</td>
+                  <td>{s.V_ms != null ? fmt(s.V_ms, 1) : "—"}</td>
+                  <td className={s.T_K > 700 ? "hot" : "cool"}>{fmt(s.T_K, 1)}</td>
+                  <td>{s.Ts_K != null ? fmt(s.Ts_K, 1) : "—"}</td>
+                  <td>{p0_val != null ? fmt(p0_val, 1) : "—"}</td>
+                  <td>{s.ps_kPa != null ? fmt(s.ps_kPa, 1) : "—"}</td>
+                  <td>{s.s_JkgK != null ? fmt(s.s_JkgK, 0) : "—"}</td>
                 </tr>
-              )}
-            </React.Fragment>
-          );
-        })}
-      </tbody>
-    </table>
+                {s.combustion_metrics && (
+                  <tr style={{backgroundColor: "rgba(255,255,255,0.03)"}}>
+                    <td colSpan="9" style={{padding: "10px 14px", borderBottom: "1px solid rgba(48,54,61,.5)"}}>
+                      <div style={{display: "flex", flexWrap: "wrap", gap: "20px", fontSize: "11px"}}>
+                        <div className="field">
+                          <label>Combustion State</label>
+                          <span style={{color: "var(--acc1)", fontWeight: "bold"}}>{s.combustion_metrics.burn_state} (Φ = {s.combustion_metrics.equivalence_ratio.toFixed(3)})</span>
+                        </div>
+                        <div className="field">
+                          <label>Fuel-Air Ratio</label>
+                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.fuel_air_ratio.toFixed(4)}</span>
+                        </div>
+                        <div className="field">
+                          <label>EI NOx</label>
+                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.NOx.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                        </div>
+                        <div className="field">
+                          <label>EI CO</label>
+                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                        </div>
+                        <div className="field">
+                          <label>EI CO₂</label>
+                          <span style={{fontFamily: "var(--mono)"}}>{s.combustion_metrics.emissions_EI.CO2.toFixed(1)} <span style={{color:"var(--muted)", fontSize:"10px"}}>g/kg</span></span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -933,6 +946,17 @@ function TurbojetPanel() {
               <KPI label="Nozzle"     value={result.choked?"CHOKED":"Open"} unit=""         cls={result.choked?"hi-tj":""}/>
             </div>
 
+            {result.efficiencies && (
+              <div className="kpi-strip" style={{marginTop: "8px"}}>
+                <KPI label="η_thermal (η_th)"   value={fmt(result.efficiencies.thermal_efficiency * 100, 1)} unit="%" />
+                <KPI label="η_propulsive (η_p)" value={fmt(result.efficiencies.propulsive_efficiency * 100, 1)} unit="%" />
+                <KPI label="η_overall (η_o)"    value={fmt(result.efficiencies.overall_efficiency * 100, 1)} unit="%" />
+                <KPI label="Gross Thrust Fg"    value={fmt(result.thrust_breakdown?.gross_thrust_kN, 2)} unit="kN" />
+                <KPI label="Ram Drag Fram"      value={fmt(result.thrust_breakdown?.ram_drag_kN, 2)} unit="kN" />
+                <KPI label="Specific Thrust"    value={fmt(result.thrust_breakdown?.specific_thrust_Ns_kg, 1)} unit="N·s/kg" />
+              </div>
+            )}
+
             <div className="card">
               <div className="card-hd">Station Data</div>
               <div className="card-bd" style={{padding:0}}>
@@ -1528,6 +1552,17 @@ function PhysicsTurbofanPanel() {
               <KPI label="Bypass Ratio"  value={fmt(result.BPR,2)}      unit=""          />
               <KPI label="Req. A₁₈"      value={fmt(result.A18_calc,3)} unit="m²"        />
             </div>
+
+            {result.efficiencies && (
+              <div className="kpi-strip" style={{marginTop: "8px"}}>
+                <KPI label="η_thermal (η_th)"   value={fmt(result.efficiencies.thermal_efficiency * 100, 1)} unit="%" />
+                <KPI label="η_propulsive (η_p)" value={fmt(result.efficiencies.propulsive_efficiency * 100, 1)} unit="%" />
+                <KPI label="η_overall (η_o)"    value={fmt(result.efficiencies.overall_efficiency * 100, 1)} unit="%" />
+                <KPI label="Gross Thrust Fg"    value={fmt(result.thrust_breakdown?.gross_thrust_total_kN, 2)} unit="kN" />
+                <KPI label="Ram Drag Fram"      value={fmt(result.thrust_breakdown?.ram_drag_kN, 2)} unit="kN" />
+                <KPI label="Specific Thrust"    value={fmt(result.thrust_breakdown?.specific_thrust_Ns_kg, 1)} unit="N·s/kg" />
+              </div>
+            )}
 
             <div className="card">
               <div className="card-hd">Station Data</div>
@@ -3661,11 +3696,29 @@ const TurbineBackground = () => (
 function App() {
   const [engine, setEngine] = useState("turbojet");
   const [apiOk,  setApiOk]  = useState("checking");
+  const [modelCount, setModelCount] = useState(9);
 
   useEffect(() => {
-    fetch(`${API}/`)
-      .then(r => setApiOk(r.ok ? "online" : "error"))
-      .catch(()  => setApiOk("offline"));
+    fetch(`${API}/api/status`)
+      .then(r => {
+        if (r.ok) return r.json();
+        throw new Error("status error");
+      })
+      .then(d => {
+        setApiOk("online");
+        if (d.models_count) setModelCount(d.models_count);
+      })
+      .catch(() => {
+        fetch(`${API}/`)
+          .then(r => {
+            if (r.ok) {
+              setApiOk("online");
+            } else {
+              setApiOk("error");
+            }
+          })
+          .catch(() => setApiOk("offline"));
+      });
   }, []);
 
   return (
@@ -3673,17 +3726,24 @@ function App() {
       <TurbineBackground />
       <header>
         <div className="h-logo">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc1)" strokeWidth="2">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--acc1)" strokeWidth="2">
             <circle cx="12" cy="12" r="10"/>
             <path d="M2 12h20"/>
             <path d="M12 2c-3 3-4 6-4 10s1 7 4 10"/>
           </svg>
-          Gas Turbine Simulator
-          <span className="h-sub">
-            {apiOk==="online"   && <span style={{color:"var(--acc2)"}}>● API online</span>}
-            {apiOk==="offline"  && <span style={{color:"#f78166"}}>● API offline — run start.sh (see SETUP_GUIDE.md)</span>}
-            {apiOk==="checking" && <span style={{color:"var(--muted)"}}>● checking…</span>}
-          </span>
+          <div>
+            <div style={{display: "flex", alignItems: "baseline", gap: "8px"}}>
+              <span style={{letterSpacing: "0.5px"}}>GAS TURBINE ENGINE SIMULATOR</span>
+              <span className="h-sub" style={{marginLeft: 0}}>
+                {apiOk==="online"   && <span style={{color:"var(--acc2)", fontWeight: 600}}>● Core API Online ({modelCount} Models)</span>}
+                {apiOk==="offline"  && <span style={{color:"#f78166", fontWeight: 600}}>● Core API Offline — run start.bat / start.sh</span>}
+                {apiOk==="checking" && <span style={{color:"var(--muted)"}}>● Checking API…</span>}
+              </span>
+            </div>
+            <div style={{fontSize: "10px", color: "var(--muted)", fontWeight: 400, marginTop: "-2px", letterSpacing: "0.2px"}}>
+              Multi-Spool Cycle Synthesis & Mission Analytics (M.Sc. Aerospace Standard)
+            </div>
+          </div>
         </div>
 
         

@@ -5,13 +5,14 @@ Serves both the turbojet (Cantera-based) and turbofan (CF34 deck interpolation) 
 
 from __future__ import annotations
 import traceback
+import os
+import json
 from typing import Literal, Optional, Any, Dict, List
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field, model_validator
-import json
 
 import numpy as np
 
@@ -553,9 +554,16 @@ class HybridSweepRequest(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/")
-def root():
+def root(request: Request):
+    accept = request.headers.get("accept", "")
+    frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    # If a browser requests the root URL, serve the interactive simulator UI
+    if "text/html" in accept and os.path.exists(frontend_path):
+        return FileResponse(frontend_path)
+    # Default / API JSON response
     return {
         "status": "online",
+        "service": "Gas Turbine Engine Simulator",
         "models": [
             "turbojet",
             "physics_turbofan",
@@ -568,6 +576,32 @@ def root():
             "hybrid_electric"
         ],
         "docs":   "/docs",
+        "app":    "/app",
+    }
+
+
+@app.get("/app")
+def serve_app():
+    """Direct route to serve the interactive web simulator frontend."""
+    frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    if os.path.exists(frontend_path):
+        return FileResponse(frontend_path)
+    raise HTTPException(status_code=404, detail="frontend/index.html not found")
+
+
+@app.get("/api/status")
+@app.get("/api/health")
+def api_health():
+    """Health check endpoint for real-time frontend connection status badge."""
+    return {
+        "status": "online",
+        "service": "Gas Turbine Engine Simulator",
+        "version": "1.0.0",
+        "models_count": 9,
+        "active_models": [
+            "turbojet", "physics_turbofan", "turbofan_cf34", "off_design",
+            "meanline", "turboprop", "mission", "surrogate", "hybrid_electric"
+        ]
     }
 
 

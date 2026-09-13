@@ -38,14 +38,16 @@ if not exist "data\CF34_deck_v4.csv" (
     echo.
 )
 
-REM ── Start backend ─────────────────────────────────────────────────────────────
+REM ── Start backend & launch browser ─────────────────────────────────────────
 echo Starting FastAPI backend on http://localhost:8000 ...
 echo   API docs: http://localhost:8000/docs
+echo   Web App:  http://localhost:8000/
 echo.
-echo   Open frontend\index.html in your browser to use the simulator.
+echo   Launching Gas Turbine Simulator MVP in your default browser...
 echo   Press CTRL+C to stop.
 echo.
 
+start "" "http://localhost:8000/"
 cd backend
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 pause

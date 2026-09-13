@@ -234,15 +234,102 @@ def calc_turboprop_performance(
     PSFC_kW = mdot_fuel_kgh / P_shaft_kW if P_shaft_kW > 0 else 0.0
     PSFC_shp = (mdot_fuel_kgh * 2.20462) / SHP if SHP > 0 else 0.0
 
-    # Stations Dictionary
+    # Stations Dictionary with complete static and total thermodynamics
+    gamma_h = gamma_t
+    R_air = 287.05
+    M0 = mach
+    M2 = 0.40
+    M3 = 0.25
+    M4 = 0.15
+    M45 = 0.30
+    M5 = 0.35
+    M8 = min(1.0, V8 / max(1.0, math.sqrt(gamma_h * R_air * max(100.0, T8))))
+
     stations = {
-        "0": {"label": "Freestream",       "T_K": round(T_amb, 1), "P_atm": round(p_amb / 101325.0, 3)},
-        "2": {"label": "Compressor Inlet", "T_K": round(T02, 1),   "P_atm": round(P02 / 101325.0, 3)},
-        "3": {"label": "Compressor Exit",  "T_K": round(T03, 1),   "P_atm": round(P03 / 101325.0, 3)},
-        "4": {"label": "Combustor Exit",   "T_K": round(T04, 1),   "P_atm": round(P04 / 101325.0, 3)},
-        "45": {"label": "HPT Exit (GasGen)", "T_K": round(T045, 1), "P_atm": round(P045 / 101325.0, 3)},
-        "5": {"label": "Power Turb Exit",  "T_K": round(T05, 1),   "P_atm": round(P05 / 101325.0, 3)},
-        "8": {"label": "Exhaust Exit",     "T_K": round(T8, 1),    "P_atm": round(p8 / 101325.0, 3)},
+        "0": {
+            "label": "Freestream",
+            "T_K": round(T_amb, 1),
+            "T_total_K": round(T_amb * (1.0 + 0.5 * (gamma_c - 1.0) * M0**2), 1),
+            "T_static_K": round(T_amb, 1),
+            "P_Pa": round(p_amb, 0),
+            "P_atm": round(p_amb / 101325.0, 3),
+            "P_total_kPa": round((p_amb * (1.0 + 0.5 * (gamma_c - 1.0) * M0**2)**(gamma_c / (gamma_c - 1.0))) / 1000.0, 2),
+            "P_static_kPa": round(p_amb / 1000.0, 2),
+            "Mach": round(M0, 3),
+            "V_ms": round(V_inf, 1),
+        },
+        "2": {
+            "label": "Compressor Inlet",
+            "T_K": round(T02, 1),
+            "T_total_K": round(T02, 1),
+            "T_static_K": round(T02 / (1.0 + 0.5 * (gamma_c - 1.0) * M2**2), 1),
+            "P_Pa": round(P02, 0),
+            "P_atm": round(P02 / 101325.0, 3),
+            "P_total_kPa": round(P02 / 1000.0, 2),
+            "P_static_kPa": round((P02 / (1.0 + 0.5 * (gamma_c - 1.0) * M2**2)**(gamma_c / (gamma_c - 1.0))) / 1000.0, 2),
+            "Mach": round(M2, 3),
+            "V_ms": round(M2 * math.sqrt(gamma_c * R_air * (T02 / (1.0 + 0.5 * (gamma_c - 1.0) * M2**2))), 1),
+        },
+        "3": {
+            "label": "Compressor Exit",
+            "T_K": round(T03, 1),
+            "T_total_K": round(T03, 1),
+            "T_static_K": round(T03 / (1.0 + 0.5 * (gamma_c - 1.0) * M3**2), 1),
+            "P_Pa": round(P03, 0),
+            "P_atm": round(P03 / 101325.0, 3),
+            "P_total_kPa": round(P03 / 1000.0, 2),
+            "P_static_kPa": round((P03 / (1.0 + 0.5 * (gamma_c - 1.0) * M3**2)**(gamma_c / (gamma_c - 1.0))) / 1000.0, 2),
+            "Mach": round(M3, 3),
+            "V_ms": round(M3 * math.sqrt(gamma_c * R_air * (T03 / (1.0 + 0.5 * (gamma_c - 1.0) * M3**2))), 1),
+        },
+        "4": {
+            "label": "Combustor Exit",
+            "T_K": round(T04, 1),
+            "T_total_K": round(T04, 1),
+            "T_static_K": round(T04 / (1.0 + 0.5 * (gamma_h - 1.0) * M4**2), 1),
+            "P_Pa": round(P04, 0),
+            "P_atm": round(P04 / 101325.0, 3),
+            "P_total_kPa": round(P04 / 1000.0, 2),
+            "P_static_kPa": round((P04 / (1.0 + 0.5 * (gamma_h - 1.0) * M4**2)**(gamma_h / (gamma_h - 1.0))) / 1000.0, 2),
+            "Mach": round(M4, 3),
+            "V_ms": round(M4 * math.sqrt(gamma_h * R_air * (T04 / (1.0 + 0.5 * (gamma_h - 1.0) * M4**2))), 1),
+        },
+        "45": {
+            "label": "HPT Exit (GasGen)",
+            "T_K": round(T045, 1),
+            "T_total_K": round(T045, 1),
+            "T_static_K": round(T045 / (1.0 + 0.5 * (gamma_h - 1.0) * M45**2), 1),
+            "P_Pa": round(P045, 0),
+            "P_atm": round(P045 / 101325.0, 3),
+            "P_total_kPa": round(P045 / 1000.0, 2),
+            "P_static_kPa": round((P045 / (1.0 + 0.5 * (gamma_h - 1.0) * M45**2)**(gamma_h / (gamma_h - 1.0))) / 1000.0, 2),
+            "Mach": round(M45, 3),
+            "V_ms": round(M45 * math.sqrt(gamma_h * R_air * (T045 / (1.0 + 0.5 * (gamma_h - 1.0) * M45**2))), 1),
+        },
+        "5": {
+            "label": "Power Turb Exit",
+            "T_K": round(T05, 1),
+            "T_total_K": round(T05, 1),
+            "T_static_K": round(T05 / (1.0 + 0.5 * (gamma_h - 1.0) * M5**2), 1),
+            "P_Pa": round(P05, 0),
+            "P_atm": round(P05 / 101325.0, 3),
+            "P_total_kPa": round(P05 / 1000.0, 2),
+            "P_static_kPa": round((P05 / (1.0 + 0.5 * (gamma_h - 1.0) * M5**2)**(gamma_h / (gamma_h - 1.0))) / 1000.0, 2),
+            "Mach": round(M5, 3),
+            "V_ms": round(M5 * math.sqrt(gamma_h * R_air * (T05 / (1.0 + 0.5 * (gamma_h - 1.0) * M5**2))), 1),
+        },
+        "8": {
+            "label": "Exhaust Exit",
+            "T_K": round(T8, 1),
+            "T_total_K": round(T05, 1),
+            "T_static_K": round(T8, 1),
+            "P_Pa": round(p8, 0),
+            "P_atm": round(p8 / 101325.0, 3),
+            "P_total_kPa": round(P05 / 1000.0, 2),
+            "P_static_kPa": round(p8 / 1000.0, 2),
+            "Mach": round(M8, 3),
+            "V_ms": round(V8, 1),
+        },
     }
 
     return {

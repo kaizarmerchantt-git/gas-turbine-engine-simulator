@@ -43,13 +43,20 @@ if [ ! -f "$DECK" ]; then
   echo ""
 fi
 
-# ── Start backend ──────────────────────────────────────────────────────────────
+# ── Start backend & launch browser ──────────────────────────────────────────
 echo "Starting FastAPI backend on http://localhost:8000 ..."
 echo "  API docs: http://localhost:8000/docs"
+echo "  Web App:  http://localhost:8000/"
 echo ""
-echo "  Open frontend/index.html in your browser to use the simulator."
+echo "  Launching Gas Turbine Simulator MVP in your default browser..."
 echo "  Press CTRL+C to stop."
 echo ""
+
+if command -v xdg-open &>/dev/null; then
+  xdg-open "http://localhost:8000/" &
+elif command -v open &>/dev/null; then
+  open "http://localhost:8000/" &
+fi
 
 cd "$BACKEND_DIR"
 python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
