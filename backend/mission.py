@@ -36,6 +36,21 @@ DEFAULT_AIRCRAFT = {
 }
 
 
+WIDEBODY_AIRCRAFT = {
+    "name": "Twin-Jet Widebody 300-Pax (B777/A350 Class)",
+    "MTOW_kg": 228000.0,
+    "OEW_kg": 115000.0,
+    "max_payload_kg": 45000.0,
+    "max_fuel_kg": 75000.0,
+    "wing_area_m2": 360.0,
+    "aspect_ratio": 9.5,
+    "oswald_e": 0.85,
+    "CD0": 0.0180,
+    "n_engines": 2,
+    "M_crit": 0.82,
+}
+
+
 def compute_drag(
     weight_N: float,
     alt_ft: float,
@@ -88,11 +103,17 @@ def run_mission_simulation(
     payload_kg: float = 9000.0,
     fuel_load_kg: Optional[float] = None,
     engine_base_tsfc: float = 16.5,  # g/(kN*s) ~= 0.58 lbm/(lbf*h)
-    aircraft: Dict[str, Any] = DEFAULT_AIRCRAFT,
+    aircraft: Optional[Dict[str, Any]] = None,
+    aircraft_type: str = "generic_twin",
 ) -> Dict[str, Any]:
     """
     Simulates a full 6-phase flight mission.
     """
+    if aircraft is None:
+        if aircraft_type in ("long_range_twin", "widebody"):
+            aircraft = WIDEBODY_AIRCRAFT
+        else:
+            aircraft = DEFAULT_AIRCRAFT
     MTOW = aircraft["MTOW_kg"]
     OEW = aircraft["OEW_kg"]
     max_payload = aircraft["max_payload_kg"]
@@ -128,14 +149,23 @@ def run_mission_simulation(
         profile.append({
             "phase": phase,
             "altitude_ft": round(alt, 0),
+            "altitude_m": round(alt * 0.3048, 1),
+            "end_altitude_m": round(alt * 0.3048, 1),
             "mach": round(mach, 2),
             "time_min": round(total_time_min, 1),
+            "duration_min": round(t_min, 1),
             "distance_nm": round(total_dist_nm, 1),
+            "distance_km": round(dist_nm * 1.852, 1),
+            "cum_distance_km": round(total_dist_nm * 1.852, 1),
             "fuel_remaining_kg": round(curr_fuel, 1),
             "fuel_burn_step_kg": round(fuel_burn_step, 1),
+            "fuel_burned_kg": round(fuel_burn_step, 1),
             "gross_weight_kg": round(curr_mass, 1),
+            "start_mass_kg": round(curr_mass + fuel_burn_step, 1),
+            "end_mass_kg": round(curr_mass, 1),
             "thrust_per_eng_kN": round(thrust_kN, 2),
             "tsfc": round(tsfc, 2),
+            "avg_tsfc": round(tsfc, 2),
         })
 
     # 1. Taxi Out (10 min, ground idle)

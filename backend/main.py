@@ -455,11 +455,12 @@ class TurbopropSweepRequest(BaseModel):
 
 # Mission Simulation Schemas
 class MissionSimulateRequest(BaseModel):
+    aircraft_type:      str = "generic_twin"
     cruise_alt_ft:      float = Field(35000.0, ge=10000.0, le=45000.0)
     cruise_mach:        float = Field(0.78, ge=0.40, le=0.88)
-    cruise_distance_nm: float = Field(1200.0, ge=100.0, le=4000.0)
-    payload_kg:         float = Field(9000.0, ge=0.0, le=15000.0)
-    fuel_load_kg:       Optional[float] = Field(None, ge=1000.0, le=20000.0)
+    cruise_distance_nm: float = Field(1200.0, ge=100.0, le=10000.0)
+    payload_kg:         float = Field(9000.0, ge=0.0, le=60000.0)
+    fuel_load_kg:       Optional[float] = Field(None, ge=1000.0, le=120000.0)
     engine_base_tsfc:   float = Field(16.5, ge=10.0, le=35.0)
 
     @model_validator(mode="before")
@@ -1327,6 +1328,7 @@ def off_design_defaults():
 
 
 @app.get("/api/off_design/map")
+@app.get("/api/off_design/compressor_map")
 def off_design_map(
     cpr_des: float = 8.0,
     eta_c_des: float = 0.85,
