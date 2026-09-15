@@ -1,11 +1,14 @@
-# Gas Turbine Engine Simulator
+# AETHER-X — Gas Turbine Engine Simulator `v0.1`
 
-An interactive, web-based **0D thermodynamic cycle simulator** for gas turbine engines. Built as a learning project on top of the [Flight Test Engineering](https://www.youtube.com/@FlightTestEngineering) YouTube series and their open-source [Gas-Turbine-Propulsion](https://github.com/flight-test-engineering/Gas-Turbine-Propulsion) repository.
+> **Release v0.1** · 9 simulation modules · 44 REST API endpoints · 41 automated tests passing · React HUD frontend
+
+An interactive, web-based **0D thermodynamic cycle simulator** for gas turbine engines, built as a learning and M.Sc. research project on top of the [Flight Test Engineering](https://www.youtube.com/@FlightTestEngineering) YouTube series and their open-source [Gas-Turbine-Propulsion](https://github.com/flight-test-engineering/Gas-Turbine-Propulsion) repository.
 
 > **What is 0D modelling?**
 > A zero-dimensional cycle model computes averaged thermodynamic states — temperature, pressure, Mach number, specific entropy, specific enthalpy — at discrete stations along the engine gas path, with no spatial resolution. No flow field, no blade geometry, no radial or axial distributions. This is the standard tool for preliminary design: you use it to verify that a proposed cycle (CPR, TIT, efficiency targets) is thermodynamically consistent and to estimate thrust and fuel burn across the flight envelope before any component geometry is defined.
 
 ---
+
 
 ## What it simulates
 
@@ -248,7 +251,7 @@ Couples gas turbine thermodynamic cycles with electrical powertrains to evaluate
 
 ### `main.py` — FastAPI backend
 
-Defines Pydantic request/response schemas with range validation for all inputs. The 26 endpoints cover single-point simulation, parameter sweeps, T–s diagram data, side-by-side comparison, off-design map and operating lines, and CSV export for all engine models. CORS is open (`*`) for local development.
+Defines Pydantic request/response schemas with range validation for all inputs. The **44 endpoints** cover single-point simulation, parameter sweeps, T–s diagram data, side-by-side comparison, off-design map and operating lines, and CSV export for all engine models. CORS is open (`*`) for local development. A global NaN/Inf sanitizer middleware ensures all JSON responses are RFC 8259 compliant, preventing `[object Object]` rendering bugs in the frontend.
 
 Sweep endpoints chain single-point calls sequentially, carrying the last converged mass flow forward as the initial guess for the next point — this warm-starting cuts convergence iterations on sweeps significantly.
 
@@ -288,39 +291,41 @@ The area enclosed by the cycle is proportional to net specific work. The gap bet
 - **Side-by-side comparison** — two engine configurations at the same flight condition
 - **Emissions tracking** — calculates Emission Index for NOx, CO, and CO2 and classifies combustion state
 - **CSV export** — any sweep as a downloadable spreadsheet
-- **Automated test suite** — 26 pytest tests covering ISA, compressible flow, turbojet, turbofan, off-design matching, compressor maps, and all 26 API endpoints
-- **REST API** — 26 documented endpoints, interactive Swagger UI at `/docs`
+- **Automated test suite** — 41 pytest tests covering ISA, compressible flow, turbojet, turbofan, off-design matching, compressor maps, mean-line aerodynamics, mission analysis, surrogate model, hybrid propulsion, and all 44 API endpoints
+- **REST API** — 44 documented endpoints, interactive Swagger UI at `/docs`
 
 ---
 
 ## Project structure
 
 ```
-gas-turbine-app/
+gas-turbine-engine-simulator/            ← repo root
 ├── backend/
-│   ├── main.py                   FastAPI — 41 API endpoints + Pydantic schemas
+│   ├── main.py                   FastAPI — 44 API endpoints + Pydantic schemas + NaN middleware
+│   ├── turbojet.py               Turbojet model — mass-flow convergence + bisection TIT limiter
+│   ├── physics_turbofan.py       Dual-spool turbofan model — two-spool work balance + dual nozzle solver
+│   ├── turbofan.py               GE CF34-10E deck loader + trilinear interpolation (pyCycle data)
+│   ├── off_design.py             Off-design matching solver, compressor maps & surge margin
 │   ├── meanline.py               1D mean-line aerodynamic stage design & annulus sizing
 │   ├── turboprop.py              Turboprop & turboshaft Brayton cycle solver with free PT
 │   ├── mission.py                Aircraft mission fuel burn simulation & payload-range curves
-│   ├── surrogate.py              Fast 2nd-order response surface surrogate model (< 0.2 ms)
-│   ├── off_design.py             Off-design matching solver, compressor maps & surge margin
-│   ├── turbojet.py               Turbojet model — mass-flow convergence + bisection TIT limiter
-│   ├── physics_turbofan.py       Dual-spool turbofan model — two-spool work balance + dual nozzle solver
-│   ├── turbofan.py               CF34 deck loader + trilinear interpolation
-│   ├── engine_helper.py          Inlet / compressor / combustor / turbine / nozzle functions
-│   ├── ISA_module.py             ICAO ISA atmosphere + airspeed conversions
-│   ├── test_advanced_modules.py  Automated test suite for advanced extensions (8 tests)
-│   ├── test_off_design.py        Automated test suite for off-design matching & maps (10 tests)
-│   ├── test_physics.py           Automated test suite for baseline models & endpoints (16 tests)
-│   └── requirements.txt
+│   ├── surrogate.py              Fast RBF + polynomial response surface surrogate (< 0.2 ms)
+│   ├── hybrid.py                 Hybrid-electric propulsion (Parallel / Series / Turboelectric)
+│   ├── engine_helper.py          Inlet / compressor / combustor / turbine / nozzle component functions
+│   ├── ISA_module.py             ICAO ISA atmosphere + full airspeed conversion suite
+│   ├── test_physics.py           Automated tests — ISA, isentropic, turbojet, turbofan (16 tests)
+│   ├── test_off_design.py        Automated tests — off-design matching & maps (10 tests)
+│   ├── test_advanced_modules.py  Automated tests — mean-line, turboprop, mission, surrogate (8 tests)
+│   ├── test_hybrid.py            Automated tests — hybrid architectures & trade studies (7 tests)
+│   └── requirements.txt          Python dependencies (FastAPI, Pydantic, NumPy, Pandas, Cantera)
 ├── frontend/
-│   └── index.html                Single-file React app with 9 panels, Chart.js, SVGs & maps
+│   ├── index.html                Single-file React 18 SPA — 9 HUD panels, Chart.js, live SVG triangles
+│   └── index_v1_archive.html     Archived v1 baseline frontend
 ├── data/
-│   └── CF34_deck_v4.csv     Pre-computed CF34-10E engine deck (pyCycle)
-├── notebooks/               Source Jupyter notebooks from the YT series
-├── conda_env.yml            Conda environment (recommended for Windows)
-├── start.sh / start.bat     One-click startup scripts
-├── SETUP_GUIDE.md           Full install + troubleshooting guide
+│   └── CF34_deck_v4.csv          Pre-computed GE CF34-10E engine performance deck (pyCycle/OpenMDAO)
+├── conda_env.yml                 Conda environment spec (Python 3.11, Cantera 3.0)
+├── start.sh / start.bat          One-click startup scripts (macOS/Linux / Windows)
+├── SETUP_GUIDE.md                Full install + troubleshooting guide
 └── README.md
 ```
 
@@ -344,10 +349,10 @@ start.bat
 
 ### Running Tests
 
-Run the full automated test suite:
+Run the full automated test suite (41 tests across 4 files):
 
 ```bash
-pytest -v backend/test_physics.py backend/test_off_design.py backend/test_advanced_modules.py backend/test_hybrid.py
+pytest -v backend/
 ```
 
 Full instructions in **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.

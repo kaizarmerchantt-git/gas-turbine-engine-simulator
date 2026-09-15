@@ -33,8 +33,6 @@ wheels/
 *.egg
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -128,15 +126,18 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# OS generated files
+# OS generated files — macOS
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
+
+# OS generated files — Windows
 ehthumbs.db
 Thumbs.db
 Desktop.ini
+$RECYCLE.BIN/
 
 # IDEs and Editors
 .vscode/
@@ -145,8 +146,24 @@ Desktop.ini
 *.swo
 *~
 
-# Local debug files
+# ─── Project-specific: files never committed ─────────────────────────────────
+
+# One-off debug / migration scripts
 backend/debug_turbofan.py
 patch_html.py
+fix_meanline.py
+fix_*.py
+
+# Antigravity IDE workspace artifacts (local AI session files)
+Antigravity IDE/
 .graphifyignore
 graphify-out/
+
+# Personal run artefacts and local session data
+*.local
+*.personal
+*.tmp
+*.bak
+session_*.json
+local_run_*.txt
+
