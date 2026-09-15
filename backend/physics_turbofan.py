@@ -354,16 +354,16 @@ def _calc_turbofan_raw(
     
     stations = {}
     for s in st:
-        T0_k = float(gas[s].T)
-        P0_pa = float(gas[s].P)
+        T_static = float(gas[s].T)
+        P_static = float(gas[s].P)
         m_s = float(M[s])
         gamma_s = float(gas[s].cp / gas[s].cv) if gas[s].cv > 0 else 1.4
         mw_s = float(gas[s].mean_molecular_weight)
         r_spec = ct.gas_constant / mw_s if mw_s > 0 else 287.05
         
         mach_factor = 1.0 + 0.5 * (gamma_s - 1.0) * m_s**2
-        T_static = T0_k / mach_factor
-        P_static = P0_pa / (mach_factor ** (gamma_s / (gamma_s - 1.0)))
+        T0_k = T_static * mach_factor
+        P0_pa = P_static * (mach_factor ** (gamma_s / (gamma_s - 1.0)))
         V_flow = m_s * math.sqrt(max(1.0, gamma_s * r_spec * T_static))
 
         stations[str(s)] = {

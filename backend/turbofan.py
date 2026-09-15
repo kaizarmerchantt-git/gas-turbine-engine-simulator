@@ -219,7 +219,15 @@ def interp_altMNPC(
     x1          = pt["low"]["alt"]
     interp_data = _linear_interp(Hp, x2, x1, temp_pts2[0], temp_pts2[1])
 
-    return {col: float(interp_data[0][i]) for i, col in enumerate(col_names)}
+    res = {col: float(interp_data[0][i]) for i, col in enumerate(col_names)}
+    
+    # Enforce mathematical consistency for TSFC (lbm/(lbf*h))
+    if res.get("Fn", 0) > 0:
+        res["TSFC"] = (res["Wf"] * 3600.0) / res["Fn"]
+    else:
+        res["TSFC"] = 0.0
+        
+    return res
 
 
 def get_envelope() -> dict:

@@ -230,14 +230,29 @@ def run_mission_simulation(
     fuel_descent = desc_fuel_rate_kg_min * t_desc_min
     record_step("Descent", 1500, 0.40, t_desc_min, dist_descent, fuel_descent, 4.0, 18.0)
 
-    # 6. Landing & 45-min Holding Reserve (1,500 ft, M 0.30)
+    # Calculate Landing Weight before Reserve
+    landing_weight_kg = curr_mass
+    block_fuel_kg = fuel_load_kg - curr_fuel
+
+    # 6. 45-min Holding Reserve (1,500 ft, M 0.30) - Calculated but NOT burned in nominal block
     t_loiter_min = 45.0
     T_loiter_req, _, _, _ = compute_drag(curr_mass * g, 1500, 0.30, aircraft)
     T_loiter_kN = T_loiter_req / 1000.0
     fuel_loiter = (T_loiter_kN * engine_base_tsfc * 60.0 / 1000.0 * aircraft["n_engines"]) * t_loiter_min
-    record_step("45-min Loiter Reserve", 1500, 0.30, t_loiter_min, 0.0, fuel_loiter, T_loiter_kN, engine_base_tsfc)
-
-    total_trip_fuel_burned = fuel_load_kg - curr_fuel
+    
+    # Check feasibility
+    mission_feasible = True
+    failed_reason = "None"
+    
+    if curr_fuel < fuel_loiter:
+        mission_feasible = False
+        failed_reason = "Insufficient fuel for mission distance and required reserves."
+    
+    if curr_fuel <= 0.0:
+        mission_feasible = False
+        failed_reason = "Aircraft ran out of fuel before reaching destination."
+        
+    total_trip_fuel_burned = block_fuel_kg
 
     # Analytical Breguet range check for the cruise phase:
     # R = (V / (g * TSFC)) * (L/D) * ln(W_start / W_end)
@@ -285,16 +300,18 @@ def run_mission_simulation(
             break
 
     summary_dict = {
+        "mission_feasible": mission_feasible,
+        "failed_reason": failed_reason,
         "total_distance_nm": round(total_dist_nm, 1),
         "total_distance_km": round(total_dist_nm * 1.852, 1),
         "total_flight_time_min": round(total_time_min, 1),
         "total_flight_time_hr": round(total_time_min / 60.0, 2),
         "total_fuel_burned_kg": round(total_trip_fuel_burned, 1),
         "total_fuel_burn_kg": round(total_trip_fuel_burned, 1),
-        "block_fuel_kg": round(total_trip_fuel_burned - fuel_loiter, 1),
+        "block_fuel_kg": round(block_fuel_kg, 1),
         "fuel_remaining_kg": round(curr_fuel, 1),
         "takeoff_weight_kg": round(takeoff_weight_kg, 1),
-        "landing_weight_kg": round(curr_mass, 1),
+        "landing_weight_kg": round(landing_weight_kg, 1),
         "reserve_fuel_kg": round(fuel_loiter, 1),
         "average_cruise_TSFC": round(cruise_tsfc, 2),
         "breguet_cruise_range_km": round(breguet_range_nm * 1.852, 1),

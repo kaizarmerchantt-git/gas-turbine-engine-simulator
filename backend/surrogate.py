@@ -142,9 +142,9 @@ class CycleSurrogateModel:
         x = np.array([[alt_ft, mach, throttle, CPR, TIT_K]], dtype=float)
         y = self.predict(x)[0]
         th_val = round(float(max(0.1, y[0])), 2)
-        tsfc_val = round(float(max(20.0, y[1])), 2)
-        mdot_val = round(float(max(1.0, y[2])), 2)
         ff_val = round(float(max(10.0, y[3])), 1)
+        tsfc_val = round(ff_val / th_val, 2) if th_val > 0 else 0.0
+        mdot_val = round(float(max(1.0, y[2])), 2)
         ei_val = round(float(max(0.5, y[4])), 2)
         return {
             "Thrust_kN": th_val,

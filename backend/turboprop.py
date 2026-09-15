@@ -238,7 +238,7 @@ def calc_turboprop_performance(
     gamma_h = gamma_t
     R_air = 287.05
     M0 = mach
-    M2 = 0.40
+    M2 = mach
     M3 = 0.25
     M4 = 0.15
     M45 = 0.30

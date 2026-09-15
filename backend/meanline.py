@@ -184,8 +184,8 @@ def solve_compressor_stage(
 
     rotor_inlet_dict = {
         "C": round(C1, 2),
-        "C_a": round(C_a, 2),
-        "Ca": round(C_a, 2),
+        "C_a": round(Ca1, 2),
+        "Ca": round(Ca1, 2),
         "C_theta": round(C_theta1, 2),
         "Ctheta": round(C_theta1, 2),
         "alpha_deg": round(alpha1_deg, 2),
@@ -200,8 +200,8 @@ def solve_compressor_stage(
     }
     rotor_exit_dict = {
         "C": round(C2, 2),
-        "C_a": round(C_a, 2),
-        "Ca": round(C_a, 2),
+        "C_a": round(Ca2, 2),
+        "Ca": round(Ca2, 2),
         "C_theta": round(C_theta2, 2),
         "Ctheta": round(C_theta2, 2),
         "alpha_deg": round(alpha2_deg, 2),
@@ -330,6 +330,11 @@ def solve_multistage_compressor_meanline(
     overall_CPR = curr_P0 / P0_inlet
     overall_W = cp * (curr_T0 - T0_inlet) / 1000.0 # kJ/kg
 
+    avg_psi = stages[0]["psi"] if stages else 0.0
+    avg_phi = stages[0]["phi"] if stages else 0.0
+    avg_reaction = stages[0]["reaction"] if stages else 0.0
+    avg_pr = overall_CPR ** (1.0 / n_stages) if n_stages > 0 else 1.0
+
     return {
         "n_stages": n_stages,
         "num_stages": n_stages,
@@ -348,6 +353,14 @@ def solve_multistage_compressor_meanline(
         "P0_out": round(curr_P0, 1),
         "N_rpm": N_rpm,
         "U_mean": round(stages[0]["U"], 2),
+        "psi": round(avg_psi, 4),
+        "loading_coefficient_psi": round(avg_psi, 4),
+        "phi": round(avg_phi, 4),
+        "flow_coefficient_phi": round(avg_phi, 4),
+        "reaction": round(avg_reaction, 3),
+        "degree_of_reaction_R": round(avg_reaction, 3),
+        "PR_stage": round(avg_pr, 4),
+        "stage_PR": round(avg_pr, 4),
         "stages": stages
     }
 
@@ -491,3 +504,4 @@ def solve_turbine_stage(
             "rotor_exit": rotor_exit_dict,
         }
     }
+

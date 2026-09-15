@@ -479,6 +479,8 @@
 
     .hud-slider-input::-webkit-slider-thumb {
       appearance: none;
+      -webkit-appearance: none;
+      margin-top: -4px; /* Fix vertical alignment: (track 4px - thumb 12px) / 2 */
       width: 12px;
       height: 12px;
       border-radius: 1px;
@@ -508,6 +510,10 @@
       outline: none;
       transition: all 0.2s ease;
       text-transform: uppercase;
+      display: inline-flex; /* Fix vertical text centering */
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
     }
 
     .hud-btn:hover {
@@ -563,6 +569,10 @@
       text-transform: uppercase;
     }
 
+    .hud-table th.num {
+      text-align: right;
+    }
+
     .hud-table td {
       padding: 5px 10px;
       border-bottom: 1px solid var(--border-faint);
@@ -592,14 +602,17 @@
 
     .hud-table td.gold {
       color: var(--hud-gold);
+      font-weight: 700;
     }
 
     .hud-table td.green {
       color: var(--hud-green);
+      font-weight: 700;
     }
 
     .hud-table td.red {
       color: var(--hud-red);
+      font-weight: 700;
     }
 
     /* Status badge inside tables */
@@ -711,18 +724,24 @@
     function useNeonChart(canvasRef, type, chartData, options = {}) {
       const chartInst = useRef(null);
 
+      // JSON stringify options to avoid unnecessary updates if options object is recreated inline
+      const optionsStr = JSON.stringify(options);
+
       useEffect(() => {
         if (!canvasRef.current) return;
-        if (chartInst.current) {
-          chartInst.current.destroy();
-          chartInst.current = null;
+        
+        if (!chartData) {
+          if (chartInst.current) {
+            chartInst.current.destroy();
+            chartInst.current = null;
+          }
+          return;
         }
-        if (!chartData) return;
 
         const defaultOpts = {
           responsive: true,
           maintainAspectRatio: false,
-          animation: { duration: 300 },
+          animation: false, // Turn off animation to stop the continuous flickering/jumping
           plugins: {
             legend: {
               display: true,
@@ -758,29 +777,38 @@
           }
         };
 
+        const parsedOptions = JSON.parse(optionsStr);
         const mergedOpts = {
           ...defaultOpts,
-          ...options,
-          plugins: { ...defaultOpts.plugins, ...(options.plugins || {}) },
+          ...parsedOptions,
+          plugins: { ...defaultOpts.plugins, ...(parsedOptions.plugins || {}) },
           scales: {
-            x: { ...defaultOpts.scales.x, ...(options.scales?.x || {}) },
-            y: { ...defaultOpts.scales.y, ...(options.scales?.y || {}) }
+            x: { ...defaultOpts.scales.x, ...(parsedOptions.scales?.x || {}) },
+            y: { ...defaultOpts.scales.y, ...(parsedOptions.scales?.y || {}) }
           }
         };
 
-        chartInst.current = new Chart(canvasRef.current, {
-          type,
-          data: chartData,
-          options: mergedOpts
-        });
+        if (chartInst.current) {
+          chartInst.current.data = chartData;
+          chartInst.current.options = mergedOpts;
+          chartInst.current.update();
+        } else {
+          chartInst.current = new Chart(canvasRef.current, {
+            type,
+            data: chartData,
+            options: mergedOpts
+          });
+        }
+      }, [chartData, type, optionsStr]);
 
+      useEffect(() => {
         return () => {
           if (chartInst.current) {
             chartInst.current.destroy();
             chartInst.current = null;
           }
         };
-      }, [chartData]);
+      }, []);
     }
 
     /* ════════════════════════════════════════════════════════════════════════
@@ -959,10 +987,14 @@
       // 1. Plot Speed Lines (N = 60% to 105%)
       if (mapData?.speed_lines) {
         mapData.speed_lines.forEach((sl) => {
-          const isNominal = Math.abs(sl.N_rel - 1.0) < 0.01;
+          const speedPct = sl.speed_pct !== undefined ? sl.speed_pct : (sl.N_rel ? Math.round(sl.N_rel * 100) : NaN);
+          const isNominal = Math.abs(speedPct - 100) < 1;
           datasets.push({
-            label: `N = ${Math.round(sl.N_rel * 100)}%`,
-            data: sl.points.map(pt => ({ x: pt.mdot_corr, y: pt.PR })),
+            label: `N = ${speedPct}%`,
+            data: sl.points.map(pt => ({ 
+              x: pt.x !== undefined ? pt.x : pt.mdot_corr, 
+              y: pt.y !== undefined ? pt.y : pt.PR 
+            })),
             borderColor: isNominal ? "#00f0ff" : "rgba(255, 255, 255, 0.35)",
             borderWidth: isNominal ? 2 : 1,
             tension: 0.25,
@@ -1847,7 +1879,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Turbojet execution failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Turbojet execution failed"));
           }
           const data = await resp.json();
           setRes(data);
@@ -2031,7 +2063,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Turbofan execution failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Turbofan execution failed"));
           }
           const data = await resp.json();
           setRes(data);
@@ -2165,7 +2197,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "CF34 deck interpolation failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "CF34 deck interpolation failed"));
           }
           const data = await resp.json();
           setRes(data);
@@ -2304,7 +2336,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Off-design component matching failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Off-design component matching failed"));
           }
           const data = await resp.json();
           setResult(data);
@@ -2469,7 +2501,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Aero stage solver failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Aero stage solver failed"));
           }
           const data = await resp.json();
           setResult(data);
@@ -2679,7 +2711,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Turboprop calculation failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Turboprop calculation failed"));
           }
           const data = await resp.json();
           setRes(data);
@@ -2701,7 +2733,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Turboprop sweep failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Turboprop sweep failed"));
           }
           const data = await resp.json();
           setSweepRes(data);
@@ -2844,7 +2876,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Flight mission simulation failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Flight mission simulation failed"));
           }
           const data = await resp.json();
           setRes(data);
@@ -3023,7 +3055,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Surrogate prediction failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Surrogate prediction failed"));
           }
           const data = await resp.json();
           setPred(data);
@@ -3168,7 +3200,7 @@
           });
           if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.detail || "Hybrid calculation failed");
+            throw new Error(typeof err.detail === "string" ? err.detail : (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(", ") : JSON.stringify(err.detail) || "Hybrid calculation failed"));
           }
           const data = await resp.json();
           setRes(data);
@@ -3450,3 +3482,4 @@
   </script>
 </body>
 </html>
+

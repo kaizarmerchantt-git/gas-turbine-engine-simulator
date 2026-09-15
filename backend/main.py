@@ -570,9 +570,16 @@ class HybridSweepRequest(BaseModel):
     study_type:            Literal["hybrid_ratio", "specific_energy", "distance"] = "hybrid_ratio"
     architecture:          Literal["parallel", "series", "turboelectric"] = "parallel"
     n_points:              int   = Field(10, ge=4, le=25)
+    cruise_alt_m:          float = Field(9144.0, ge=3000.0, le=13000.0)
+    cruise_mach:           float = Field(0.72, ge=0.30, le=0.88)
     cruise_dist_km:        float = Field(900.0, ge=100.0, le=3500.0)
+    payload_kg:            float = Field(6500.0, ge=500.0, le=15000.0)
     specific_energy_Wh_kg: float = Field(300.0, ge=150.0, le=800.0)
     battery_mass_kg:       float = Field(1800.0, ge=0.0, le=10000.0)
+    takeoff_hybrid_ratio:  float = Field(0.35, ge=0.0, le=0.70)
+    climb_hybrid_ratio:    float = Field(0.20, ge=0.0, le=0.50)
+    cruise_hybrid_ratio:   float = Field(0.05, ge=0.0, le=0.30)
+    descent_hybrid_ratio:  float = Field(0.0, ge=0.0, le=0.20)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1630,9 +1637,16 @@ def hybrid_sweep(req: HybridSweepRequest):
     """Run parametric trade studies (hybrid ratio, battery specific energy, or stage length)."""
     try:
         kwargs = {
+            "cruise_alt_m": req.cruise_alt_m,
+            "cruise_mach": req.cruise_mach,
             "cruise_dist_km": req.cruise_dist_km,
+            "payload_kg": req.payload_kg,
             "specific_energy_Wh_kg": req.specific_energy_Wh_kg,
             "battery_mass_kg": req.battery_mass_kg,
+            "takeoff_hybrid_ratio": req.takeoff_hybrid_ratio,
+            "climb_hybrid_ratio": req.climb_hybrid_ratio,
+            "cruise_hybrid_ratio": req.cruise_hybrid_ratio,
+            "descent_hybrid_ratio": req.descent_hybrid_ratio,
         }
         res = run_hybrid_trade_study(
             study_type=req.study_type,
