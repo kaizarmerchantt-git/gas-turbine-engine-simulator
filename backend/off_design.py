@@ -107,7 +107,7 @@ class CompressorMap:
         0.70: (0.63, 0.53, 0.35, 0.50, 0.91, 0.50),
         0.80: (0.78, 0.67, 0.48, 0.68, 0.96, 0.50),
         0.90: (0.91, 0.80, 0.63, 0.88, 0.99, 0.50),
-        1.00: (1.04, 0.92, 0.82, 1.14, 1.00, 0.50),
+        1.00: (1.06, 0.94, 0.82, 1.18, 1.00, 0.50),
         1.05: (1.07, 0.96, 0.93, 1.25, 0.98, 0.50),
     }
 
@@ -362,6 +362,8 @@ def evaluate_cycle_state(
     h05 = gas.h
 
     # Exhaust Nozzle (Station 5 -> 8)
+    if p05 <= 100.0:
+        return 999.0, {"valid": False}
     pc_ratio = 1.0 / (1.0 - (1.0 / eta_noz) * ((gamma_t - 1.0) / (gamma_t + 1.0))) ** (gamma_t / (gamma_t - 1.0))
     if p05 / p_amb >= pc_ratio:
         choked = True
@@ -476,6 +478,35 @@ def solve_off_design(
         N_rel, beta_match, alt, mach, cmap, A8_target,
         eta_i, eta_t, mech_loss, eta_b, dp_over_p, T_max, eta_noz, throttle_pos, gas
     )
+
+    if not det.get("valid", False):
+        return {
+            "N_rel":            round(N_rel, 3),
+            "N_pct":            round(N_rel * 100.0, 1),
+            "beta":             round(beta_match, 4),
+            "CPR":              0.0,
+            "eta_c":            0.0,
+            "mdot_air":         0.0,
+            "mdot_corr":        0.0,
+            "mdot_fuel":        0.0,
+            "mdot_fuel_kgh":    0.0,
+            "Thrust_kN":        0.0,
+            "TSFC":             None,
+            "SAR":              None,
+            "Surge_Margin_pct": 0.0,
+            "Surge_Status":     "SURGE_VIOLATION",
+            "T04":              0.0,
+            "T05":              0.0,
+            "A8_target":        round(A8_target, 4),
+            "A8_calc":          0.0,
+            "A8_match_err_pct": 999.0,
+            "choked":           False,
+            "tit_limited":      False,
+            "emissions":        {"EI_NOx": 0.0, "EI_CO": 0.0, "EI_CO2": 0.0},
+            "stations":         {},
+            "converged":        False,
+            "error":            "Thermodynamic cycle limits exceeded (enthalpy exhaustion or stall)",
+        }
 
     # Thrust and Performance
     F_net = det["mdot_turb"] * det["V8"] - det["mdot_air"] * det["V_inf"] + A8_target * (det["p8"] - det["p_amb"])

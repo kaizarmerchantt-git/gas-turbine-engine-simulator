@@ -9,15 +9,15 @@ v1: added speed conversions
 
 
 # constants
-R_star = 8.31432 * 1E-3 # N*m/(kmol K) -> ISA page 2
-Mol_W_0 = 28.9644 #kg/kmol -> ISA page 9
-R = 287.053 # R_star/Mol_W_0 [m2/s2/K]
-gamma = 1.4 # for air -> ISA page 4
-g_SL = 9.80665 # [m/s2] -> ISA page 2
-m2ft = 3.28084
-ft2m = 1 / m2ft
-kt2ms = 0.5144
-ms2kt = 1 / kt2ms
+R_star = 8.31432e3  # J/(kmol K) -> ISA page 2 (8314.32 J/(kmol*K))
+Mol_W_0 = 28.9644  # kg/kmol -> ISA page 9
+R = R_star / Mol_W_0  # 287.053 [m2/s2/K]
+gamma = 1.4  # for air -> ISA page 4
+g_SL = 9.80665  # [m/s2] -> ISA page 2
+ft2m = 0.3048  # exact international standard
+m2ft = 1.0 / ft2m
+kt2ms = 1852.0 / 3600.0  # exact international nautical mile conversion
+ms2kt = 3600.0 / 1852.0
 
 # define strata
 
@@ -55,10 +55,9 @@ def delta_non_v(Hc:float)->float:
    
     if Hc <= Hc_t_tropo:
         return (1 + (L / T_SL) * ((Hc)*ft2m))**(-g_SL / (L * R))
-    elif Hc <= Hc_t_strato:
-        return delta_b_strato * np.exp(-(g_SL / (R * T_b_strato))*((Hc - Hc_b_strato)*ft2m))
     else:
-        raise ValueError("Altitude above stratospheric limit - outside bounds for this function")
+        # Isothermal stratosphere extension
+        return delta_b_strato * np.exp(-(g_SL / (R * T_b_strato))*((Hc - Hc_b_strato)*ft2m))
 
 delta = np.vectorize(delta_non_v)
 
@@ -66,80 +65,65 @@ delta = np.vectorize(delta_non_v)
 def p(Hc:float)->float:
     '''
     this function calculates the ISA pressure, for a given pressure altitude
-    limited to top of stratosphere
     inputs:
         Hc: in feet
     outputs:
         p: in Pascals
     '''
-
-    return delta(Hc) * p_SL
+    val = delta(Hc) * p_SL
+    return float(val) if np.ndim(val) == 0 else val
 
 def theta_non_v(Hc:float)->float:
     '''
     this function calculates 'theta', the ISA temperature ratio, for a given pressure altitude
-    limited to top of stratosphere
     inputs:
         Hc: in feet
     outputs:
         'theta'
-    
     '''
-
     if Hc <= Hc_t_tropo:
         return (1 + (L / T_SL) * ((Hc)*ft2m))
-    elif Hc <= Hc_t_strato:
-        return theta_b_strato
     else:
-        raise ValueError("Altitude above stratospheric limit - outside bounds for this function")
+        return theta_b_strato
         
 theta = np.vectorize(theta_non_v)
 
 def T(Hc:float)->float:
     '''
     this function calculates the ISA temperature, for a given pressure altitude
-    limited to top of stratosphere
     inputs:
         Hc: in feet
     outputs:
         T: in Kelvin
-    
     '''
-
-    return theta(Hc) * T_SL
+    val = theta(Hc) * T_SL
+    return float(val) if np.ndim(val) == 0 else val
 
 def sigma_non_v(Hc:float)->float:
     '''
     this function calculates 'sigma', the ISA density ratio, for a given pressure altitude
-    limited to top of stratosphere
     inputs:
         Hc: in feet
     outputs:
         'sigma'
-    
     '''
-    
     if Hc <= Hc_t_tropo:
         return (1 + (L / T_SL) * ((Hc)*ft2m))**(-g_SL / (L * R) - 1)
-    elif Hc <= Hc_t_strato:
-        return sigma_b_strato * np.exp(-(g_SL / (R * T_b_strato))*((Hc - Hc_b_strato)*ft2m))
     else:
-        raise ValueError("Altitude above stratospheric limit - outside bounds for this function")
+        return sigma_b_strato * np.exp(-(g_SL / (R * T_b_strato))*((Hc - Hc_b_strato)*ft2m))
         
 sigma = np.vectorize(sigma_non_v)
 
 def rho(Hc:float)->float:
     '''
     this function calculates the ISA density, for a given pressure altitude
-    limited to top of stratosphere
     inputs:
         Hc: in feet
     outputs:
         rho: in kg/m3
-    
     '''
-
-    return sigma(Hc) * rho_SL
+    val = sigma(Hc) * rho_SL
+    return float(val) if np.ndim(val) == 0 else val
 
 def inv_delta_non_v(delta:float)->float:
     '''
@@ -266,11 +250,10 @@ def M2Ve(M, Hc):
         Mach number
         Hc: calibrated altitude in ft
     outputs:
-        Vc: calibrated airspeed in kts
+        Ve: equivalent airspeed in kts
     '''
-    Pt_Pa_over_Pa = (1 + 0.2 * M**2)**(7/2) - 1
     Pa = p(Hc)
-    Ve = np.sqrt((1 / rho_SL) * (7 * Pa * ((Pt_Pa_over_Pa + 1)**(2/7) - 1)))
+    Ve = M * np.sqrt(gamma * Pa / rho_SL)
     return Ve * ms2kt
 
 def M2Vt(M, Hc):
@@ -280,12 +263,10 @@ def M2Vt(M, Hc):
         Mach number
         Hc: calibrated altitude in ft
     outputs:
-        Vc: calibrated airspeed in kts
+        Vt: true airspeed in kts
     '''
-    Pt_Pa_over_Pa = (1 + 0.2 * M**2)**(7/2) - 1
-    Pa = p(Hc)
-    Ve = np.sqrt((1 / rho_SL) * (7 * Pa * ((Pt_Pa_over_Pa + 1)**(2/7) - 1)))
-    return Ve2Vt(Ve * ms2kt, Hc)
+    Vt = M * np.sqrt(gamma * R * T(Hc))
+    return Vt * ms2kt
 
 def Vt2M(Vt, Hc):
     '''

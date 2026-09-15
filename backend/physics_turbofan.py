@@ -4,6 +4,7 @@ Physics-based 0D cycle model for a two-spool turbofan.
 """
 
 from __future__ import annotations
+import math
 import numpy as np
 import cantera as ct
 from engine_helper import (
@@ -205,11 +206,14 @@ def _calc_turbofan_raw(
                 T_18 = T0_13 - eng_perf["eta_noz_byp"] * T0_13 * (
                     1.0 - 1.0 / (p0_13 / p_amb) ** ((gamma_b - 1.0) / gamma_b)
                 )
-                V_18 = np.sqrt(2.0 * gas[13].cp * (T0_13 - T_18))
-                rho_18 = p_18 / (R_b * T_18)
-                A18_calc = current_mdot_b / (rho_18 * V_18)
+                delta_T = max(T0_13 - T_18, 0.0)
+                V_18 = np.sqrt(2.0 * gas[13].cp * delta_T)
+                rho_18 = p_18 / (R_b * T_18) if (R_b * T_18) > 0 else 1.0
+                denom = rho_18 * V_18
+                A18_calc = (current_mdot_b / denom) if denom > 1e-6 else 0.0
                 F_b_spec = V_18 - V_i
-                M[18] = V_18 / np.sqrt(gamma_b * R_b * T_18)
+                a_18 = np.sqrt(gamma_b * R_b * T_18) if (gamma_b * R_b * T_18) > 0 else 1.0
+                M[18] = V_18 / a_18
             
             gas[18].TP = T_18, p_18
             mdot_noz_b = current_mdot_b
@@ -300,6 +304,7 @@ def _calc_turbofan_raw(
         p0_5 = get_p(gas[5].P, get_gamma(gas[5]), M[5])
         if p0_5 <= p_amb:
             choked_c, mdot_noz_c, M[8], F_c_spec = False, current_mdot_c * 0.9, 0.0, 0.0
+            gas[8].TP = gas[5].T, p_amb
         else:
             choked_c, mdot_noz_c, M[8], F_c_spec = calc_nozzle(
                 gas[5], M[5], eng_perf["eta_noz_core"],
@@ -307,14 +312,16 @@ def _calc_turbofan_raw(
             )
 
         # ── Convergence check ───────────────────────────────────────────────
-        err_c = abs(mdot_noz_c - current_mdot_c)
+        _far_val = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
+        mdot_c_target = mdot_noz_c / (1.0 + (_far_val / eng_perf["eta_b"]))
+        err_c = abs(mdot_noz_c - mdot_turb)
         
         if err_c < tol:
             converged = True
         else:
             mdot_iter += 1
             alpha = 0.3
-            current_mdot_c = (1.0 - alpha) * current_mdot_c + alpha * mdot_noz_c
+            current_mdot_c = (1.0 - alpha) * current_mdot_c + alpha * mdot_c_target
 
 
     # ── Post-loop performance metrics ───────────────────────────────────────
@@ -347,14 +354,34 @@ def _calc_turbofan_raw(
     
     stations = {}
     for s in st:
+        T_static = float(gas[s].T)
+        P_static = float(gas[s].P)
+        m_s = float(M[s])
+        gamma_s = float(gas[s].cp / gas[s].cv) if gas[s].cv > 0 else 1.4
+        mw_s = float(gas[s].mean_molecular_weight)
+        r_spec = ct.gas_constant / mw_s if mw_s > 0 else 287.05
+        
+        mach_factor = 1.0 + 0.5 * (gamma_s - 1.0) * m_s**2
+        T0_k = T_static * mach_factor
+        P0_pa = P_static * (mach_factor ** (gamma_s / (gamma_s - 1.0)))
+        V_flow = m_s * math.sqrt(max(1.0, gamma_s * r_spec * T_static))
+
         stations[str(s)] = {
-            "label":   station_labels[s],
-            "T_K":     round(gas[s].T, 1),
-            "P_Pa":    round(gas[s].P, 0),
-            "P_atm":   round(gas[s].P / ct.one_atm, 3),
-            "Mach":    round(M[s], 4),
-            "s_JkgK":  round(gas[s].entropy_mass, 1),
-            "h_Jkg":   round(gas[s].enthalpy_mass, 1),
+            "label":        station_labels[s],
+            "T_K":          round(T0_k, 1),
+            "T_total_K":    round(T0_k, 1),
+            "T_static_K":   round(T_static, 1),
+            "Ts_K":         round(T_static, 1),
+            "P_Pa":         round(P0_pa, 0),
+            "P_atm":        round(P0_pa / ct.one_atm, 3),
+            "P_total_kPa":  round(P0_pa / 1000.0, 2),
+            "P_static_kPa": round(P_static / 1000.0, 2),
+            "p_kPa":        round(P0_pa / 1000.0, 2),
+            "ps_kPa":       round(P_static / 1000.0, 2),
+            "Mach":         round(m_s, 4),
+            "V_ms":         round(V_flow, 1),
+            "s_JkgK":       round(gas[s].entropy_mass, 1),
+            "h_Jkg":        round(gas[s].enthalpy_mass, 1),
         }
 
     # ── Emissions (Station 4) ───────────────────────────────────────────────
@@ -382,23 +409,50 @@ def _calc_turbofan_raw(
         "emissions_EI": emissions_EI,
     }
 
+    F_gross_c = (F_c_spec + V_i) * mdot_noz_c / 1000.0
+    F_gross_b = (F_b_spec + V_i) * current_mdot_b / 1000.0
+    F_gross_total = F_gross_c + F_gross_b
+    F_ram = V_i * (mdot_noz_c + current_mdot_b) / 1000.0
+    sp_thrust = (thrust_total_kN * 1000.0) / max(0.01, mdot_noz_c + current_mdot_b)
+
+    V8 = stations["8"]["V_ms"]
+    V18 = stations["18"]["V_ms"]
+    Q_HV = 43.1e6
+    P_fuel = mdot_fuel * Q_HV
+    P_jet_kinetic = 0.5 * mdot_noz_c * max(0.0, V8**2 - V_i**2) + 0.5 * current_mdot_b * max(0.0, V18**2 - V_i**2)
+    P_thrust_prop = (thrust_total_kN * 1000.0) * V_i
+
+    eta_th = min(1.0, max(0.0, P_jet_kinetic / max(1.0, P_fuel))) if P_fuel > 0 else 0.0
+    eta_p = min(1.0, max(0.0, P_thrust_prop / max(1.0, P_jet_kinetic))) if (P_jet_kinetic > 0 and V_i > 0) else (1.0 if V_i == 0 and thrust_total_kN > 0 else 0.0)
+    eta_o = eta_th * eta_p
+
     return {
-        "T_core":         round(thrust_c_kN, 3),
-        "T_byp":          round(thrust_b_kN, 3),
-        "T":              round(thrust_total_kN, 3),
-        "mdot_fuel":      round(mdot_fuel, 5),
-        "TSFC":           round(TSFC * 3600.0, 2) if TSFC is not None else None,
-        "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5) if SAR is not None else None,
-        "mdot_core":      round(mdot_noz_c, 2),
-        "mdot_byp":       round(current_mdot_b, 2),
-        "BPR":            round(BPR, 2),
-        "A18_calc":       round(A18_calc, 4),
-        "choked_core":    bool(choked_c),
-        "choked_byp":     bool(choked_b),
-        "T_max_limited":  T_max_limited,
-        "converged":      converged and not conv_error,
-        "alt_ft":         alt,
-        "Mach":           M_i,
-        "throttle_pos":   throttle_pos,
-        "stations":       stations,
+        "T_core":             round(thrust_c_kN, 3),
+        "T_byp":              round(thrust_b_kN, 3),
+        "T":                  round(thrust_total_kN, 3),
+        "thrust_net_kN":      round(thrust_total_kN, 3),
+        "thrust_gross_kN":    round(F_gross_total, 3),
+        "ram_drag_kN":        round(F_ram, 3),
+        "thrust_lbf":         round(thrust_total_kN * 224.809, 1),
+        "specific_thrust":    round(sp_thrust, 1),
+        "mdot_fuel":          round(mdot_fuel, 5),
+        "TSFC":               round(TSFC * 3600.0, 2) if TSFC is not None else None,
+        "TSFC_lbm":           round(TSFC * 3600.0 * 0.0353, 3) if TSFC is not None else None,
+        "SAR":                round(SAR * ISA.ms2kt / 3600.0, 5) if SAR is not None else None,
+        "mdot_core":          round(mdot_noz_c, 2),
+        "mdot_byp":           round(current_mdot_b, 2),
+        "mdot_air":           round(mdot_noz_c + current_mdot_b, 2),
+        "BPR":                round(BPR, 2),
+        "A18_calc":           round(A18_calc, 4),
+        "eta_th":             round(eta_th, 4),
+        "eta_prop":           round(eta_p, 4),
+        "eta_overall":        round(eta_o, 4),
+        "choked_core":        bool(choked_c),
+        "choked_byp":         bool(choked_b),
+        "T_max_limited":      T_max_limited,
+        "converged":          converged and not conv_error,
+        "alt_ft":             alt,
+        "Mach":               M_i,
+        "throttle_pos":       throttle_pos,
+        "stations":           stations,
     }

@@ -113,13 +113,12 @@ def calc_turboprop_performance(
     COMP_FUEL = "c12h26:1"
 
     # Solve chemical equilibrium in Cantera
-    # Set air at T03, P04
-    gas.TPX = T03, P04, COMP_AIR
-    # Find equivalence ratio to achieve T04
+    # Find equivalence ratio to achieve T04 by resetting unburned state each iteration
     phi_low, phi_high = 0.05, 0.70
-    for _ in range(16):
+    for _ in range(20):
         phi_mid = 0.5 * (phi_low + phi_high)
-        gas.set_equivalence_ratio(phi_mid, COMP_FUEL, COMP_AIR)
+        gas.TPX = T03, P04, COMP_AIR
+        gas.set_equivalence_ratio(phi_mid, COMP_FUEL, COMP_AIR, basis="mole")
         gas.equilibrate("HP")
         if gas.T < T04:
             phi_low = phi_mid
@@ -127,26 +126,31 @@ def calc_turboprop_performance(
             phi_high = phi_mid
 
     phi_sol = 0.5 * (phi_low + phi_high)
-    FAR = phi_sol * 0.0683  # approx stoichiometric FAR for C12H26 is 0.0683
+    gas.TPX = T03, P04, COMP_AIR
+    gas.set_equivalence_ratio(phi_sol, COMP_FUEL, COMP_AIR, basis="mole")
+    gas.equilibrate("HP")
+
+    Z = gas.mixture_fraction(fuel=COMP_FUEL, oxidizer=COMP_AIR, basis="mass")
+    FAR = Z / (1.0 - Z) if Z < 1.0 else phi_sol * 0.0683
     mdot_fuel = mdot_air * FAR / eta_b
     mdot_gas = mdot_air + mdot_fuel
 
-    # Emissions
+    # Emissions (grams pollutant per kg fuel burned)
     X_NO = gas["NO"].X[0] if "NO" in gas.species_names else 0.0
     X_NO2 = gas["NO2"].X[0] if "NO2" in gas.species_names else 0.0
     X_CO = gas["CO"].X[0] if "CO" in gas.species_names else 0.0
     X_CO2 = gas["CO2"].X[0] if "CO2" in gas.species_names else 0.0
     MW_mix = gas.mean_molecular_weight
 
-    EI_NOx = ((X_NO * 30.01 + X_NO2 * 46.01) / (FAR * MW_mix)) * 1000.0 if FAR > 0 else 0.0
-    EI_CO = ((X_CO * 28.01) / (FAR * MW_mix)) * 1000.0 if FAR > 0 else 0.0
-    EI_CO2 = ((X_CO2 * 44.01) / (FAR * MW_mix)) * 1000.0 if FAR > 0 else 0.0
+    conv_factor = ((1.0 + FAR) / (FAR * MW_mix)) * 1000.0 if FAR > 0 else 0.0
+    EI_NOx = (X_NO * 30.01 + X_NO2 * 46.01) * conv_factor
+    EI_CO  = (X_CO * 28.01) * conv_factor
+    EI_CO2 = (X_CO2 * 44.01) * conv_factor
 
     gamma_t = 1.33
     cp_t = 1150.0
 
     # Station 4.5: High Pressure Turbine (Drives Compressor)
-    # W_HPT = W_comp_total / eta_mech_core
     W_hpt_required = W_comp_total / eta_mech_core
     delta_T0_hpt = W_hpt_required / (mdot_gas * cp_t)
     T045 = T04 - delta_T0_hpt
@@ -156,9 +160,6 @@ def calc_turboprop_performance(
     P045 = P04 * (1.0 - delta_T0_hpt / (eta_hpt * T04)) ** (gamma_t / (gamma_t - 1.0))
 
     # Station 5: Free Power Turbine (PT)
-    # Extracts remaining enthalpy down to exhaust nozzle expansion
-    # Optimum work extraction leaves expansion pressure ratio P05/p_amb ~ 1.1 - 1.3
-    # We target P05 = 1.2 * p_amb for healthy nozzle scavenging
     P05_target = max(p_amb * 1.08, P045 * 0.35)
     PR_pt = P05_target / P045
 
@@ -177,24 +178,33 @@ def calc_turboprop_performance(
     omega_prop = 2.0 * math.pi * prop_rpm / 60.0
     torque_Nm = P_shaft / omega_prop if omega_prop > 0 else 0.0
 
-    # Propeller Aerodynamics & Thrust
-    # Variable efficiency drop at Mach > 0.6 due to helical tip compressibility
+    # Propeller Aerodynamics & Continuous Thrust via Momentum Theory
     if mach > 0.60:
-        eta_prop = prop_eff_max * max(0.4, 1.0 - 1.5 * (mach - 0.60) ** 2)
+        eta_prop_aero = prop_eff_max * max(0.35, 1.0 - 1.5 * (mach - 0.60) ** 2)
     else:
-        eta_prop = prop_eff_max * min(1.0, 0.4 + 1.2 * (mach / 0.60))
+        eta_prop_aero = prop_eff_max * min(1.0, 0.50 + 0.50 * (mach / 0.60))
 
-    if V_inf > 5.0:
-        F_prop_N = (P_shaft * eta_prop) / V_inf
+    A_disk = 0.25 * math.pi * (prop_diameter_m ** 2)
+    P_prop_avail = P_shaft * eta_prop_aero
+
+    if V_inf < 1.0:
+        F_prop_N = (2.0 * rho_amb * A_disk * (P_prop_avail ** 2)) ** (1.0 / 3.0)
+        eta_prop = 0.0
     else:
-        # Static takeoff thrust via actuator disk momentum theory
-        A_disk = 0.25 * math.pi * (prop_diameter_m ** 2)
-        F_prop_N = (2.0 * rho_amb * A_disk * ((P_shaft * eta_prop) ** 2)) ** (1.0 / 3.0)
+        # Newton-Raphson solve: F * (V_inf + sqrt(F / (2*rho*A))) = P_prop_avail
+        F = (2.0 * rho_amb * A_disk * (P_prop_avail ** 2)) ** (1.0 / 3.0)
+        for _ in range(12):
+            v_i = math.sqrt(max(0.0, F / (2.0 * rho_amb * A_disk)))
+            f_val = F * (V_inf + v_i) - P_prop_avail
+            f_prime = V_inf + 1.5 * v_i
+            if abs(f_prime) > 1e-6:
+                F -= f_val / f_prime
+        F_prop_N = max(0.0, F)
+        eta_prop = (F_prop_N * V_inf) / P_shaft if P_shaft > 0 else 0.0
 
     F_prop_kN = F_prop_N / 1000.0
 
     # Exhaust Nozzle Jet Thrust (Station 8)
-    # Nozzle expands P05, T05 to ambient
     PR_crit_noz = (1.0 - (1.0 / eta_noz) * (gamma_t - 1.0) / (gamma_t + 1.0)) ** (-gamma_t / (gamma_t - 1.0))
     p_crit_noz = P05 / PR_crit_noz
 
@@ -224,30 +234,123 @@ def calc_turboprop_performance(
     PSFC_kW = mdot_fuel_kgh / P_shaft_kW if P_shaft_kW > 0 else 0.0
     PSFC_shp = (mdot_fuel_kgh * 2.20462) / SHP if SHP > 0 else 0.0
 
-    # Stations Dictionary
+    # Stations Dictionary with complete static and total thermodynamics
+    gamma_h = gamma_t
+    R_air = 287.05
+    M0 = mach
+    M2 = mach
+    M3 = 0.25
+    M4 = 0.15
+    M45 = 0.30
+    M5 = 0.35
+    M8 = min(1.0, V8 / max(1.0, math.sqrt(gamma_h * R_air * max(100.0, T8))))
+
     stations = {
-        "0": {"label": "Freestream",       "T_K": round(T_amb, 1), "P_atm": round(p_amb / 101325.0, 3)},
-        "2": {"label": "Compressor Inlet", "T_K": round(T02, 1),   "P_atm": round(P02 / 101325.0, 3)},
-        "3": {"label": "Compressor Exit",  "T_K": round(T03, 1),   "P_atm": round(P03 / 101325.0, 3)},
-        "4": {"label": "Combustor Exit",   "T_K": round(T04, 1),   "P_atm": round(P04 / 101325.0, 3)},
-        "45": {"label": "HPT Exit (GasGen)", "T_K": round(T045, 1), "P_atm": round(P045 / 101325.0, 3)},
-        "5": {"label": "Power Turb Exit",  "T_K": round(T05, 1),   "P_atm": round(P05 / 101325.0, 3)},
-        "8": {"label": "Exhaust Exit",     "T_K": round(T8, 1),    "P_atm": round(p8 / 101325.0, 3)},
+        "0": {
+            "label": "Freestream",
+            "T_K": round(T_amb, 1),
+            "T_total_K": round(T_amb * (1.0 + 0.5 * (gamma_c - 1.0) * M0**2), 1),
+            "T_static_K": round(T_amb, 1),
+            "P_Pa": round(p_amb, 0),
+            "P_atm": round(p_amb / 101325.0, 3),
+            "P_total_kPa": round((p_amb * (1.0 + 0.5 * (gamma_c - 1.0) * M0**2)**(gamma_c / (gamma_c - 1.0))) / 1000.0, 2),
+            "P_static_kPa": round(p_amb / 1000.0, 2),
+            "Mach": round(M0, 3),
+            "V_ms": round(V_inf, 1),
+        },
+        "2": {
+            "label": "Compressor Inlet",
+            "T_K": round(T02, 1),
+            "T_total_K": round(T02, 1),
+            "T_static_K": round(T02 / (1.0 + 0.5 * (gamma_c - 1.0) * M2**2), 1),
+            "P_Pa": round(P02, 0),
+            "P_atm": round(P02 / 101325.0, 3),
+            "P_total_kPa": round(P02 / 1000.0, 2),
+            "P_static_kPa": round((P02 / (1.0 + 0.5 * (gamma_c - 1.0) * M2**2)**(gamma_c / (gamma_c - 1.0))) / 1000.0, 2),
+            "Mach": round(M2, 3),
+            "V_ms": round(M2 * math.sqrt(gamma_c * R_air * (T02 / (1.0 + 0.5 * (gamma_c - 1.0) * M2**2))), 1),
+        },
+        "3": {
+            "label": "Compressor Exit",
+            "T_K": round(T03, 1),
+            "T_total_K": round(T03, 1),
+            "T_static_K": round(T03 / (1.0 + 0.5 * (gamma_c - 1.0) * M3**2), 1),
+            "P_Pa": round(P03, 0),
+            "P_atm": round(P03 / 101325.0, 3),
+            "P_total_kPa": round(P03 / 1000.0, 2),
+            "P_static_kPa": round((P03 / (1.0 + 0.5 * (gamma_c - 1.0) * M3**2)**(gamma_c / (gamma_c - 1.0))) / 1000.0, 2),
+            "Mach": round(M3, 3),
+            "V_ms": round(M3 * math.sqrt(gamma_c * R_air * (T03 / (1.0 + 0.5 * (gamma_c - 1.0) * M3**2))), 1),
+        },
+        "4": {
+            "label": "Combustor Exit",
+            "T_K": round(T04, 1),
+            "T_total_K": round(T04, 1),
+            "T_static_K": round(T04 / (1.0 + 0.5 * (gamma_h - 1.0) * M4**2), 1),
+            "P_Pa": round(P04, 0),
+            "P_atm": round(P04 / 101325.0, 3),
+            "P_total_kPa": round(P04 / 1000.0, 2),
+            "P_static_kPa": round((P04 / (1.0 + 0.5 * (gamma_h - 1.0) * M4**2)**(gamma_h / (gamma_h - 1.0))) / 1000.0, 2),
+            "Mach": round(M4, 3),
+            "V_ms": round(M4 * math.sqrt(gamma_h * R_air * (T04 / (1.0 + 0.5 * (gamma_h - 1.0) * M4**2))), 1),
+        },
+        "45": {
+            "label": "HPT Exit (GasGen)",
+            "T_K": round(T045, 1),
+            "T_total_K": round(T045, 1),
+            "T_static_K": round(T045 / (1.0 + 0.5 * (gamma_h - 1.0) * M45**2), 1),
+            "P_Pa": round(P045, 0),
+            "P_atm": round(P045 / 101325.0, 3),
+            "P_total_kPa": round(P045 / 1000.0, 2),
+            "P_static_kPa": round((P045 / (1.0 + 0.5 * (gamma_h - 1.0) * M45**2)**(gamma_h / (gamma_h - 1.0))) / 1000.0, 2),
+            "Mach": round(M45, 3),
+            "V_ms": round(M45 * math.sqrt(gamma_h * R_air * (T045 / (1.0 + 0.5 * (gamma_h - 1.0) * M45**2))), 1),
+        },
+        "5": {
+            "label": "Power Turb Exit",
+            "T_K": round(T05, 1),
+            "T_total_K": round(T05, 1),
+            "T_static_K": round(T05 / (1.0 + 0.5 * (gamma_h - 1.0) * M5**2), 1),
+            "P_Pa": round(P05, 0),
+            "P_atm": round(P05 / 101325.0, 3),
+            "P_total_kPa": round(P05 / 1000.0, 2),
+            "P_static_kPa": round((P05 / (1.0 + 0.5 * (gamma_h - 1.0) * M5**2)**(gamma_h / (gamma_h - 1.0))) / 1000.0, 2),
+            "Mach": round(M5, 3),
+            "V_ms": round(M5 * math.sqrt(gamma_h * R_air * (T05 / (1.0 + 0.5 * (gamma_h - 1.0) * M5**2))), 1),
+        },
+        "8": {
+            "label": "Exhaust Exit",
+            "T_K": round(T8, 1),
+            "T_total_K": round(T05, 1),
+            "T_static_K": round(T8, 1),
+            "P_Pa": round(p8, 0),
+            "P_atm": round(p8 / 101325.0, 3),
+            "P_total_kPa": round(P05 / 1000.0, 2),
+            "P_static_kPa": round(p8 / 1000.0, 2),
+            "Mach": round(M8, 3),
+            "V_ms": round(V8, 1),
+        },
     }
 
     return {
         "P_shaft_kW": round(P_shaft_kW, 1),
         "SHP": round(SHP, 1),
+        "P_shaft_shp": round(SHP, 1),  # Frontend compatibility alias
         "ESHP": round(ESHP, 1),
         "torque_Nm": round(torque_Nm, 1),
         "F_prop_kN": round(F_prop_kN, 3),
         "F_jet_kN": round(F_jet_kN, 3),
         "F_total_kN": round(F_total_kN, 3),
+        "propeller_thrust_N": round(F_prop_N, 1),  # Frontend compatibility alias
+        "jet_thrust_N": round(F_jet_N, 1),          # Frontend compatibility alias
+        "total_thrust_N": round((F_prop_N + F_jet_N), 1), # Frontend compatibility alias
         "eta_prop": round(eta_prop, 3),
+        "propeller_efficiency": round(eta_prop, 3), # Frontend compatibility alias
         "PSFC_kg_kWh": round(PSFC_kW, 4),
         "PSFC_lbm_shph": round(PSFC_shp, 4),
         "mdot_air": round(mdot_air, 2),
         "mdot_fuel_kgh": round(mdot_fuel_kgh, 2),
+        "mdot_fuel_kg_s": round(mdot_fuel, 5),      # Frontend compatibility alias
         "FAR": round(FAR, 5),
         "emissions": {
             "EI_NOx": round(EI_NOx, 2),
@@ -280,8 +383,9 @@ def run_turboprop_sweep(
     if gas is None:
         gas = ct.Solution(REACTION_MECHANISM, PHASE_NAME)
 
+    step_div = max(1, n_steps - 1)
     if sweep_param == "power":
-        tit_vals = [1100.0 + i * (1500.0 - 1100.0) / (n_steps - 1) for i in range(n_steps)]
+        tit_vals = [1100.0 + i * (1500.0 - 1100.0) / step_div for i in range(n_steps)]
         points = []
         for tit in tit_vals:
             res = calc_turboprop_performance(
@@ -290,7 +394,7 @@ def run_turboprop_sweep(
             res["sweep_val"] = round(tit, 0)
             points.append(res)
     elif sweep_param == "altitude":
-        alt_vals = [0.0 + i * (35000.0 - 0.0) / (n_steps - 1) for i in range(n_steps)]
+        alt_vals = [0.0 + i * (35000.0 - 0.0) / step_div for i in range(n_steps)]
         points = []
         for a in alt_vals:
             res = calc_turboprop_performance(
@@ -299,7 +403,7 @@ def run_turboprop_sweep(
             res["sweep_val"] = round(a, 0)
             points.append(res)
     elif sweep_param == "mach":
-        mach_vals = [0.10 + i * (0.65 - 0.10) / (n_steps - 1) for i in range(n_steps)]
+        mach_vals = [0.10 + i * (0.65 - 0.10) / step_div for i in range(n_steps)]
         points = []
         for m in mach_vals:
             res = calc_turboprop_performance(

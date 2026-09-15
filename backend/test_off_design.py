@@ -5,6 +5,9 @@ Tests compressor maps, surge margins, 1D matching solver, power balance, and Fas
 """
 
 import math
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 import pytest
 from fastapi.testclient import TestClient
 

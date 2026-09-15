@@ -51,11 +51,22 @@ KEY_OUTPUTS = [
     "FAR",    # fuel-air ratio
     "N1",     # LP spool speed [rpm or corrected]
     "N2",     # HP spool speed
-    "burner:tot:T",  # turbine inlet temperature [R]
-    "hpc:tot:T",     # HPC exit temperature [R]
-    "lpt:tot:T",     # LPT exit temperature [R]
+    "inlet:tot:T",   # inlet total temperature [R]
+    "inlet:tot:P",   # inlet total pressure [atm]
+    "fan:tot:T",     # fan exit total temperature [R]
     "fan:tot:P",     # fan exit total pressure [atm]
+    "lpc:tot:T",     # LPC exit total temperature [R]
+    "lpc:tot:P",     # LPC exit total pressure [atm]
+    "hpc:tot:T",     # HPC exit total temperature [R]
     "hpc:tot:P",     # HPC exit total pressure [atm]
+    "burner:tot:T",  # turbine inlet temperature [R]
+    "burner:tot:P",  # combustor exit total pressure [atm]
+    "hpt:tot:T",     # HPT exit total temperature [R]
+    "hpt:tot:P",     # HPT exit total pressure [atm]
+    "lpt:tot:T",     # LPT exit total temperature [R]
+    "lpt:tot:P",     # LPT exit total pressure [atm]
+    "fc:stat:P",     # freestream static pressure [atm]
+    "fc:stat:T",     # freestream static temperature [R]
 ]
 
 # ── Deck envelope (for frontend range validation) ────────────────────────────
@@ -188,8 +199,10 @@ def interp_altMNPC(
     pc_idx = col_names.index("PC")
     temp_pts = []
     for arr in interp_pts:
-        y2 = arr[np.where(arr[:, pc_idx] == PC_high)]
-        y1 = arr[np.where(arr[:, pc_idx] == PC_low)]
+        match_high = np.where(np.isclose(arr[:, pc_idx], PC_high, atol=1e-5))[0]
+        match_low  = np.where(np.isclose(arr[:, pc_idx], PC_low, atol=1e-5))[0]
+        y2 = arr[match_high] if len(match_high) > 0 else arr[[np.argmin(np.abs(arr[:, pc_idx] - PC_high))]]
+        y1 = arr[match_low]  if len(match_low) > 0  else arr[[np.argmin(np.abs(arr[:, pc_idx] - PC_low))]]
         temp_pts.append(_linear_interp(PC, PC_high, PC_low, y2, y1))
 
     # ── Interpolate Mach ────────────────────────────────────────────────────
@@ -206,7 +219,15 @@ def interp_altMNPC(
     x1          = pt["low"]["alt"]
     interp_data = _linear_interp(Hp, x2, x1, temp_pts2[0], temp_pts2[1])
 
-    return {col: float(interp_data[0][i]) for i, col in enumerate(col_names)}
+    res = {col: float(interp_data[0][i]) for i, col in enumerate(col_names)}
+    
+    # Enforce mathematical consistency for TSFC (lbm/(lbf*h))
+    if res.get("Fn", 0) > 0:
+        res["TSFC"] = (res["Wf"] * 3600.0) / res["Fn"]
+    else:
+        res["TSFC"] = 0.0
+        
+    return res
 
 
 def get_envelope() -> dict:

@@ -9,6 +9,7 @@ in the notebook are preserved.
 """
 
 from __future__ import annotations
+import math
 import cantera as ct
 from engine_helper import (
     REACTION_MECHANISM, PHASE_NAME, COMP_AIR, COMP_FUEL,
@@ -114,6 +115,11 @@ def calc_thrust(
     phi = 0.0
     T_max_limited = False
 
+    # Pre-declare variables to avoid UnboundLocalError on loop failure
+    mdot_noz = 0.0
+    F = 0.0
+    choked = False
+
     while not converged and mdot_iter <= max_mdot_iter and not conv_error:
 
         # ── Station a → 1 (free-stream to inlet entry, isentropic) ─────────
@@ -150,7 +156,7 @@ def calc_thrust(
             continue   # skip combustor/turbine/nozzle with bad compressor state
 
         # ── Station 3 → 4 (combustor with TIT limiter) ─────────────────────
-        _TIT_FLOOR = 0.5  # minimum internal throttle scalar
+        _TIT_FLOOR = 0.05  # minimum internal throttle scalar (allows idle / de-throttling)
         phi = (
             (eng_perf["max_f"] - eng_perf["min_f"])
             * throttle_pos
@@ -231,11 +237,15 @@ def calc_thrust(
         mdot_fuel = (_far_i / eng_perf["eta_b"]) * current_mdot
         mdot_turb = current_mdot + mdot_fuel
         w_t_spec = (compressor_work * current_mdot) / (mdot_turb * eng_perf["mech_loss"])
-        _, _ = multi_stage_turbine(
-            gas[st[4]], w_t_spec,
-            eng_param["turb_n_stages"], eng_perf["eta_t"],
-            1.0, M[st[4]], M[st[5]], gas[st[5]]
-        )
+        try:
+            _, _ = multi_stage_turbine(
+                gas[st[4]], w_t_spec,
+                eng_param["turb_n_stages"], eng_perf["eta_t"],
+                1.0, M[st[4]], M[st[5]], gas[st[5]]
+            )
+        except ValueError:
+            conv_error = True
+            break
 
         # ── Station 5 → 8 (nozzle) ─────────────────────────────────────────
         choked, mdot_noz, M[st[6]], F = calc_nozzle(
@@ -248,7 +258,7 @@ def calc_thrust(
             converged = True
         else:
             mdot_iter   += 1
-            current_mdot = mdot_noz
+            current_mdot = 0.5 * current_mdot + 0.5 * mdot_noz
 
     # ── Post-loop performance metrics ───────────────────────────────────────
     # Bug T1-A fix: FAR = Z/(1-Z), not Z.
@@ -267,18 +277,37 @@ def calc_thrust(
         5:   "After turbine",
         8:   "Nozzle exit",
     }
-    stations = {
-        str(s): {
-            "label":   station_labels[s],
-            "T_K":     round(gas[s].T, 1),
-            "P_Pa":    round(gas[s].P, 0),
-            "P_atm":   round(gas[s].P / ct.one_atm, 3),
-            "Mach":    round(M[s], 4),
-            "s_JkgK":  round(gas[s].entropy_mass, 1),     # specific entropy [J/(kg·K)] for T-s diagram
-            "h_Jkg":   round(gas[s].enthalpy_mass, 1),    # specific enthalpy [J/kg]
+    stations = {}
+    for s in st:
+        T0_k = float(gas[s].T)
+        P0_pa = float(gas[s].P)
+        m_s = float(M[s])
+        gamma_s = float(gas[s].cp / gas[s].cv) if gas[s].cv > 0 else 1.4
+        mw_s = float(gas[s].mean_molecular_weight)
+        r_spec = ct.gas_constant / mw_s if mw_s > 0 else 287.05
+        
+        mach_factor = 1.0 + 0.5 * (gamma_s - 1.0) * m_s**2
+        T_static = T0_k / mach_factor
+        P_static = P0_pa / (mach_factor ** (gamma_s / (gamma_s - 1.0)))
+        V_flow = m_s * math.sqrt(max(1.0, gamma_s * r_spec * T_static))
+
+        stations[str(s)] = {
+            "label":        station_labels[s],
+            "T_K":          round(T0_k, 1),
+            "T_total_K":    round(T0_k, 1),
+            "T_static_K":   round(T_static, 1),
+            "Ts_K":         round(T_static, 1),
+            "P_Pa":         round(P0_pa, 0),
+            "P_atm":        round(P0_pa / ct.one_atm, 3),
+            "P_total_kPa":  round(P0_pa / 1000.0, 2),
+            "P_static_kPa": round(P_static / 1000.0, 2),
+            "p_kPa":        round(P0_pa / 1000.0, 2),
+            "ps_kPa":       round(P_static / 1000.0, 2),
+            "Mach":         round(m_s, 4),
+            "V_ms":         round(V_flow, 1),
+            "s_JkgK":       round(gas[s].entropy_mass, 1),
+            "h_Jkg":        round(gas[s].enthalpy_mass, 1),
         }
-        for s in st
-    }
 
     # ── Emissions & Combustion Metrics (Station 4) ──────────────────────────
     FAR = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
@@ -297,9 +326,8 @@ def calc_thrust(
         sp_dict = gas4.mole_fraction_dict()
         
         def calc_ei(species_name, mw_species):
-            # Cantera species names in some mechanisms (like Reitz) are lowercase
             X_spec = sp_dict.get(species_name.lower(), sp_dict.get(species_name.upper(), 0.0))
-            return (X_spec * mw_species) / (FAR * MW_mix) * 1000.0
+            return (X_spec * mw_species) / MW_mix * ((1.0 + FAR) / FAR) * 1000.0
             
         ei_no  = calc_ei("NO", 30.01)
         ei_no2 = calc_ei("NO2", 46.01)
@@ -315,18 +343,40 @@ def calc_thrust(
     }
 
     thrust_kN = F * mdot_noz / 1000.0
+    F_gross_kN = (F + V_i) * mdot_noz / 1000.0
+    F_ram_kN = V_i * mdot_noz / 1000.0
+    sp_thrust = (thrust_kN * 1000.0) / max(0.01, mdot_noz)
+
+    V8 = stations["8"]["V_ms"]
+    Q_HV = 43.1e6  # Lower heating value of aviation kerosene [J/kg]
+    P_fuel = mdot_fuel * Q_HV
+    P_jet_kinetic = 0.5 * mdot_noz * max(0.0, V8**2 - V_i**2)
+    P_thrust_prop = (thrust_kN * 1000.0) * V_i
+
+    eta_th = min(1.0, max(0.0, P_jet_kinetic / max(1.0, P_fuel))) if P_fuel > 0 else 0.0
+    eta_p = min(1.0, max(0.0, (2.0 * V_i) / (V8 + V_i))) if (V8 + V_i) > 0 and V_i > 0 else (1.0 if V_i == 0 and thrust_kN > 0 else 0.0)
+    eta_o = eta_th * eta_p
 
     return {
-        "T":              round(thrust_kN, 3),
-        "mdot_fuel":      round(mdot_fuel, 5),
-        "TSFC":           round(TSFC * 3600.0 * 1000.0, 2) if TSFC is not None else None,   # kg/(kN·h)
-        "SAR":            round(SAR * ISA.ms2kt / 3600.0, 5) if SAR is not None else None, # nm/kg
-        "mdot_air":       round(mdot_noz, 2),
-        "choked":         bool(choked),
-        "T_max_limited":  T_max_limited,
-        "converged":      converged,
-        "alt_ft":         alt,
-        "Mach":           M_i,
-        "throttle_pos":   throttle_pos,   # BUG-1 fix: was "throttle", sweep xKey expects "throttle_pos"
-        "stations":       stations,
+        "T":                  round(thrust_kN, 3),
+        "thrust_net_kN":      round(thrust_kN, 3),
+        "thrust_gross_kN":    round(F_gross_kN, 3),
+        "ram_drag_kN":        round(F_ram_kN, 3),
+        "thrust_lbf":         round(thrust_kN * 224.809, 1),
+        "specific_thrust":    round(sp_thrust, 1),
+        "mdot_fuel":          round(mdot_fuel, 5),
+        "TSFC":               round(TSFC * 3600.0 * 1000.0, 2) if TSFC is not None else None,   # kg/(kN·h)
+        "TSFC_lbm":           round(TSFC * 3600.0 * 1000.0 * 0.0353, 3) if TSFC is not None else None, # lbm/(lbf·h)
+        "SAR":                round(SAR * ISA.ms2kt / 3600.0, 5) if SAR is not None else None, # nm/kg
+        "mdot_air":           round(mdot_noz, 2),
+        "eta_th":             round(eta_th, 4),
+        "eta_prop":           round(eta_p, 4),
+        "eta_overall":        round(eta_o, 4),
+        "choked":             bool(choked),
+        "T_max_limited":      T_max_limited,
+        "converged":          converged,
+        "alt_ft":             alt,
+        "Mach":               M_i,
+        "throttle_pos":       throttle_pos,
+        "stations":           stations,
     }

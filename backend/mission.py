@@ -36,6 +36,21 @@ DEFAULT_AIRCRAFT = {
 }
 
 
+WIDEBODY_AIRCRAFT = {
+    "name": "Twin-Jet Widebody 300-Pax (B777/A350 Class)",
+    "MTOW_kg": 228000.0,
+    "OEW_kg": 115000.0,
+    "max_payload_kg": 45000.0,
+    "max_fuel_kg": 75000.0,
+    "wing_area_m2": 360.0,
+    "aspect_ratio": 9.5,
+    "oswald_e": 0.85,
+    "CD0": 0.0180,
+    "n_engines": 2,
+    "M_crit": 0.82,
+}
+
+
 def compute_drag(
     weight_N: float,
     alt_ft: float,
@@ -88,11 +103,17 @@ def run_mission_simulation(
     payload_kg: float = 9000.0,
     fuel_load_kg: Optional[float] = None,
     engine_base_tsfc: float = 16.5,  # g/(kN*s) ~= 0.58 lbm/(lbf*h)
-    aircraft: Dict[str, Any] = DEFAULT_AIRCRAFT,
+    aircraft: Optional[Dict[str, Any]] = None,
+    aircraft_type: str = "generic_twin",
 ) -> Dict[str, Any]:
     """
     Simulates a full 6-phase flight mission.
     """
+    if aircraft is None:
+        if aircraft_type in ("long_range_twin", "widebody"):
+            aircraft = WIDEBODY_AIRCRAFT
+        else:
+            aircraft = DEFAULT_AIRCRAFT
     MTOW = aircraft["MTOW_kg"]
     OEW = aircraft["OEW_kg"]
     max_payload = aircraft["max_payload_kg"]
@@ -128,14 +149,23 @@ def run_mission_simulation(
         profile.append({
             "phase": phase,
             "altitude_ft": round(alt, 0),
+            "altitude_m": round(alt * 0.3048, 1),
+            "end_altitude_m": round(alt * 0.3048, 1),
             "mach": round(mach, 2),
             "time_min": round(total_time_min, 1),
+            "duration_min": round(t_min, 1),
             "distance_nm": round(total_dist_nm, 1),
+            "distance_km": round(dist_nm * 1.852, 1),
+            "cum_distance_km": round(total_dist_nm * 1.852, 1),
             "fuel_remaining_kg": round(curr_fuel, 1),
             "fuel_burn_step_kg": round(fuel_burn_step, 1),
+            "fuel_burned_kg": round(fuel_burn_step, 1),
             "gross_weight_kg": round(curr_mass, 1),
+            "start_mass_kg": round(curr_mass + fuel_burn_step, 1),
+            "end_mass_kg": round(curr_mass, 1),
             "thrust_per_eng_kN": round(thrust_kN, 2),
             "tsfc": round(tsfc, 2),
+            "avg_tsfc": round(tsfc, 2),
         })
 
     # 1. Taxi Out (10 min, ground idle)
@@ -200,14 +230,29 @@ def run_mission_simulation(
     fuel_descent = desc_fuel_rate_kg_min * t_desc_min
     record_step("Descent", 1500, 0.40, t_desc_min, dist_descent, fuel_descent, 4.0, 18.0)
 
-    # 6. Landing & 45-min Holding Reserve (1,500 ft, M 0.30)
+    # Calculate Landing Weight before Reserve
+    landing_weight_kg = curr_mass
+    block_fuel_kg = fuel_load_kg - curr_fuel
+
+    # 6. 45-min Holding Reserve (1,500 ft, M 0.30) - Calculated but NOT burned in nominal block
     t_loiter_min = 45.0
     T_loiter_req, _, _, _ = compute_drag(curr_mass * g, 1500, 0.30, aircraft)
     T_loiter_kN = T_loiter_req / 1000.0
     fuel_loiter = (T_loiter_kN * engine_base_tsfc * 60.0 / 1000.0 * aircraft["n_engines"]) * t_loiter_min
-    record_step("45-min Loiter Reserve", 1500, 0.30, t_loiter_min, 0.0, fuel_loiter, T_loiter_kN, engine_base_tsfc)
-
-    total_trip_fuel_burned = fuel_load_kg - curr_fuel
+    
+    # Check feasibility
+    mission_feasible = True
+    failed_reason = "None"
+    
+    if curr_fuel < fuel_loiter:
+        mission_feasible = False
+        failed_reason = "Insufficient fuel for mission distance and required reserves."
+    
+    if curr_fuel <= 0.0:
+        mission_feasible = False
+        failed_reason = "Aircraft ran out of fuel before reaching destination."
+        
+    total_trip_fuel_burned = block_fuel_kg
 
     # Analytical Breguet range check for the cruise phase:
     # R = (V / (g * TSFC)) * (L/D) * ln(W_start / W_end)
@@ -219,38 +264,71 @@ def run_mission_simulation(
     breguet_range_km = (V_cruise / tsfc_per_s) * L_over_D_cruise * math.log(W_start_cr / W_end_cr) / 1000.0
     breguet_range_nm = breguet_range_km / 1.852
 
-    # Payload-Range Envelope (3 benchmark points)
+    # Payload-Range Envelope (3 standard benchmark points via Breguet Integration)
+    def calc_breguet_range(payload: float, fuel: float) -> float:
+        w_to = OEW + payload + fuel
+        # Allowances for ground ops, climb, descent, and 45-min reserve
+        allowance = min(fuel * 0.35, 2500.0)
+        fuel_cruise = max(0.0, fuel - allowance)
+        w_start = w_to - allowance * 0.4
+        w_end = max(OEW + payload + allowance * 0.6, w_start - fuel_cruise)
+        if w_start <= w_end or tsfc_per_s <= 0:
+            return 0.0
+        return (V_cruise / tsfc_per_s) * L_over_D_cruise * math.log(w_start / w_end) / 1.852 / 1000.0
+
     # Point 1: Max Payload
     p1_fuel = min(max_fuel, MTOW - OEW - max_payload)
-    p1_range_nm = cruise_distance_nm * (p1_fuel / max(1.0, total_trip_fuel_burned))
+    p1_range_nm = calc_breguet_range(max_payload, p1_fuel)
 
     # Point 2: Full Fuel
     p2_payload = max(0.0, MTOW - OEW - max_fuel)
-    p2_range_nm = cruise_distance_nm * (max_fuel / max(1.0, total_trip_fuel_burned))
+    p2_range_nm = calc_breguet_range(p2_payload, max_fuel)
 
     # Point 3: Ferry (Zero Payload, Full Fuel)
-    ferry_start_mass = OEW + max_fuel
-    ferry_end_mass = OEW + 1500.0 # reserve
-    ferry_range_nm = (V_cruise / tsfc_per_s) * L_over_D_cruise * math.log(ferry_start_mass / ferry_end_mass) / 1.852 / 1000.0
+    ferry_range_nm = calc_breguet_range(0.0, max_fuel)
 
     payload_range_curve = [
-        {"name": "Max Payload", "payload_kg": round(max_payload, 0), "range_nm": round(p1_range_nm, 0)},
-        {"name": "Max Fuel",    "payload_kg": round(p2_payload, 0), "range_nm": round(p2_range_nm, 0)},
-        {"name": "Ferry",       "payload_kg": 0.0,                   "range_nm": round(ferry_range_nm, 0)},
+        {"name": "Max Payload", "payload_kg": round(max_payload, 0), "range_nm": round(p1_range_nm, 0), "range_km": round(p1_range_nm * 1.852, 0)},
+        {"name": "Max Fuel",    "payload_kg": round(p2_payload, 0), "range_nm": round(p2_range_nm, 0), "range_km": round(p2_range_nm * 1.852, 0)},
+        {"name": "Ferry",       "payload_kg": 0.0,                   "range_nm": round(ferry_range_nm, 0), "range_km": round(ferry_range_nm * 1.852, 0)},
     ]
 
-    return {
-        "mission_summary": {
-            "total_distance_nm": round(total_dist_nm, 1),
-            "total_flight_time_min": round(total_time_min, 1),
-            "total_fuel_burned_kg": round(total_trip_fuel_burned, 1),
-            "fuel_remaining_kg": round(curr_fuel, 1),
-            "takeoff_weight_kg": round(takeoff_weight_kg, 1),
-            "landing_weight_kg": round(curr_mass, 1),
-            "reserve_fuel_kg": round(fuel_loiter, 1),
-            "breguet_cruise_range_nm": round(breguet_range_nm, 1),
-            "cruise_L_over_D": round(L_over_D_cruise, 2),
-        },
-        "payload_range_envelope": payload_range_curve,
-        "flight_profile": profile
+    cruise_tsfc = 18.0
+    for ph in profile:
+        if ph.get("phase") == "Cruise":
+            cruise_tsfc = ph.get("TSFC_g_kNs", 18.0)
+            break
+
+    summary_dict = {
+        "mission_feasible": mission_feasible,
+        "failed_reason": failed_reason,
+        "total_distance_nm": round(total_dist_nm, 1),
+        "total_distance_km": round(total_dist_nm * 1.852, 1),
+        "total_flight_time_min": round(total_time_min, 1),
+        "total_flight_time_hr": round(total_time_min / 60.0, 2),
+        "total_fuel_burned_kg": round(total_trip_fuel_burned, 1),
+        "total_fuel_burn_kg": round(total_trip_fuel_burned, 1),
+        "block_fuel_kg": round(block_fuel_kg, 1),
+        "fuel_remaining_kg": round(curr_fuel, 1),
+        "takeoff_weight_kg": round(takeoff_weight_kg, 1),
+        "landing_weight_kg": round(landing_weight_kg, 1),
+        "reserve_fuel_kg": round(fuel_loiter, 1),
+        "average_cruise_TSFC": round(cruise_tsfc, 2),
+        "breguet_cruise_range_km": round(breguet_range_nm * 1.852, 1),
+        "breguet_cruise_range_nm": round(breguet_range_nm, 1),
+        "cruise_L_over_D": round(L_over_D_cruise, 2),
     }
+
+    return {
+        "mission_summary": summary_dict,
+        "summary": summary_dict,  # Frontend compatibility alias
+        "payload_range_envelope": payload_range_curve,
+        "current_mission_point": {
+            "range_km": round(cruise_distance_nm * 1.852, 1),
+            "range_nm": round(cruise_distance_nm, 1),
+            "payload_kg": round(payload_kg, 1),
+        },
+        "flight_profile": profile,
+        "phases": profile,        # Frontend compatibility alias
+    }
+
