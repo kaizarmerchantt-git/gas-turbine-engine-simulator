@@ -1,4 +1,4 @@
-# AETHER-X — Gas Turbine Engine Simulator `v0.1`
+# AETHER-X: Gas Turbine Engine Simulator `v0.1`
 
 > **Release v0.1** · 9 simulation modules · 44 REST API endpoints · 41 automated tests passing · React HUD frontend
 
