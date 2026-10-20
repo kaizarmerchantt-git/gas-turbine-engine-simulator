@@ -110,8 +110,8 @@ DOMAINS_1_TO_4 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[CONTROLS] TURBOJET AEROTHERMODYNAMICS</span>
-                <span className={`tech-tag ${loading ? "warning" : "optimal"}`}>
-                  {loading ? "SOLVING..." : "CANTERA 3.0"}
+                <span className="tech-tag info">
+                  VALIDATION: TIER A/B/C [NASA-9 REAL GAS]
                 </span>
               </div>
               <div className="panel-card-body">
@@ -129,6 +129,8 @@ DOMAINS_1_TO_4 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip metadata={res?.metadata} fidelity="NASA-9 Real Gas" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SOLVER ERROR</div>
@@ -138,11 +140,11 @@ DOMAINS_1_TO_4 = """
 
             {/* Top KPI Ribbon (All Numbers Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="Cantera Expansion" />
-              <HudKpi label="FUEL MASS FLOW" value={wf_kgs != null ? wf_kgs : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow" decimals={4} sub="Stoich Equilibrium" />
+              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="NASA-9 Expansion" />
+              <HudKpi label="FUEL MASS FLOW" value={wf_kgs != null ? wf_kgs : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow" decimals={4} sub="LHV Energy Balance" />
               <HudKpi label="SPECIFIC FUEL CONS (TSFC)" value={tsfc != null ? tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="Metric Cycle Spec" />
               <HudKpi label="AIR MASS FLOW" value={mdot != null ? mdot : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Inlet Capture Face" />
-              <HudKpi label="THERMAL EFFICIENCY" value={eta_th != null ? fmtPct(eta_th) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Brayton Recovery" />
+              <HudKpi label="THERMAL EFFICIENCY" value={eta_th != null ? fmtPct(eta_th) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="First Law Energy Jump" />
               <HudKpi label="COMPRESSOR CPR" value={fmt(p.CPR, 1)} sub="Total-to-Total" />
             </div>
 
@@ -306,8 +308,8 @@ DOMAINS_1_TO_4 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[CONTROLS] DUAL-SPOOL TURBOFAN</span>
-                <span className={`tech-tag ${loading ? "warning" : "optimal"}`}>
-                  {loading ? "SOLVING..." : "DUAL-SPOOL CANTERA"}
+                <span className="tech-tag info">
+                  VALIDATION: TIER B/C [DUAL-SPOOL REAL GAS]
                 </span>
               </div>
               <div className="panel-card-body">
@@ -324,6 +326,8 @@ DOMAINS_1_TO_4 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip metadata={res?.metadata} fidelity="Dual-Spool Real Gas" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SOLVER ERROR</div>
@@ -346,7 +350,7 @@ DOMAINS_1_TO_4 = """
               <div className="panel-card">
                 <div className="panel-card-header">
                   <span>[THERMO-CYCLE] DUAL-SPOOL T-s DIAGRAM // CORE & BYPASS EXPANSIONS</span>
-                  <span className="tech-tag optimal">CANTERA INTEGRATION</span>
+                  <span className="tech-tag optimal">NASA-9 REAL GAS INTEGRATION</span>
                 </div>
                 <div className="panel-card-body">
                   <BraytonTsChart
@@ -528,8 +532,8 @@ DOMAINS_1_TO_4 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[INPUT] CF34 EMPIRICAL FLIGHT DECK</span>
-                <span className={`tech-tag ${loading ? "warning" : "optimal"}`}>
-                  {loading ? "INTERPOLATING..." : "TRILINEAR INTERP"}
+                <span className="tech-tag warning">
+                  VALIDATION: UNVALIDATED EMPIRICAL FIT
                 </span>
               </div>
               <div className="panel-card-body">
@@ -542,6 +546,8 @@ DOMAINS_1_TO_4 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip status={error ? "error" : "ok"} fidelity="Empirical Flight Deck Fit" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] DECK INTERPOLATION ERROR</div>
@@ -772,8 +778,8 @@ DOMAINS_1_TO_4 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[CONTROLS] OFF-DESIGN MATCHING</span>
-                <span className={`tech-tag ${loading ? "warning" : "optimal"}`}>
-                  {loading ? "SOLVING..." : "TWO-THROAT MATCH"}
+                <span className="tech-tag info">
+                  VALIDATION: TIER C [SCALED COMPONENT MAPS]
                 </span>
               </div>
               <div className="panel-card-body">
@@ -790,6 +796,8 @@ DOMAINS_1_TO_4 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip metadata={result?.metadata} fidelity="Scaled Component Map" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SOLVER ERROR</div>

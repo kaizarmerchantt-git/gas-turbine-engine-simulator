@@ -306,7 +306,7 @@ DOMAINS_5_TO_9 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[MODE] MEAN-LINE TURBOMACHINERY</span>
-                <span className="tech-tag optimal">{mode.toUpperCase()}</span>
+                <span className="tech-tag info">VALIDATION: TIER B/D [EULER WORK / LIEBLEIN]</span>
               </div>
               <div className="panel-card-body">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px", marginBottom: "10px" }}>
@@ -356,6 +356,8 @@ DOMAINS_5_TO_9 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip status={error ? "error" : "ok"} fidelity="1D Mean-Line Aerodynamics" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] AERO SOLVER ERROR</div>
@@ -492,10 +494,10 @@ DOMAINS_5_TO_9 = """
         }]
       } : null;
 
-      useNeonChart(r1, "line", d1);
-      useNeonChart(r2, "line", d2);
-      useNeonChart(r3, "line", d3);
-      useNeonChart(r4, "line", d4);
+      useNeonChart(r1, "line", d1, { scales: { y: { title: { display: true, text: "SHAFT POWER [SHP]", color: "#8E95A5" } } } });
+      useNeonChart(r2, "line", d2, { scales: { y: { title: { display: true, text: "EQUIV POWER [ESHP]", color: "#8E95A5" } } } });
+      useNeonChart(r3, "line", d3, { scales: { y: { title: { display: true, text: "PSFC [kg/(kW·h)]", color: "#8E95A5" } } } });
+      useNeonChart(r4, "line", d4, { scales: { y: { suggestedMin: 40, suggestedMax: 100, title: { display: true, text: "EFFICIENCY [%]", color: "#8E95A5" } } } });
 
       return (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -638,7 +640,7 @@ DOMAINS_5_TO_9 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[INPUT] TURBOPROP POWERTRAIN</span>
-                <span className="tech-tag optimal">{mode === "single" ? "DESIGN POINT" : "PARAMETRIC"}</span>
+                <span className="tech-tag info">VALIDATION: TIER B [FREE POWER TURBINE]</span>
               </div>
               <div className="panel-card-body">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px", marginBottom: "10px" }}>
@@ -682,6 +684,8 @@ DOMAINS_5_TO_9 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip metadata={res?.metadata} fidelity="Free Power Turbine Real Gas" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] TURBOPROP ERROR</div>
@@ -744,7 +748,7 @@ DOMAINS_5_TO_9 = """
               <div className="panel-card">
                 <div className="panel-card-header">
                   <span>[GAS-PATH] TURBOPROP THERMODYNAMIC STATIONS (FREE POWER TURBINE)</span>
-                  <span className="tech-tag info">7-ROW CANTERA SPECS</span>
+                  <span className="tech-tag info">7-ROW REAL-GAS SPECS</span>
                 </div>
                 <div className="panel-card-body">
                   <StationTable stations={res?.stations} />
@@ -960,7 +964,7 @@ DOMAINS_5_TO_9 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[INPUT] MISSION SPECIFICATION</span>
-                <span className="tech-tag optimal">BREGUET NUMERICAL</span>
+                <span className="tech-tag info">VALIDATION: TIER A/C [SEGMENTED INTEGRATOR]</span>
               </div>
               <div className="panel-card-body">
                 <div style={{ marginBottom: "6px", fontSize: "10px", color: "var(--text-silver)" }}>AIRCRAFT PLATFORM:</div>
@@ -1057,6 +1061,8 @@ DOMAINS_5_TO_9 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip metadata={res?.metadata} fidelity="Segmented Numerical Integrator" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] MISSION ERROR</div>
@@ -1171,7 +1177,22 @@ DOMAINS_5_TO_9 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[FLIGHT-LOG] MISSION INTEGRATION TABLE</span>
-                <span className="tech-tag optimal">NUMERICAL INTEGRATION</span>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  <button className="table-export-btn" onClick={() => {
+                    const cols = [
+                      { key: "name", label: "PHASE" },
+                      { key: "alt_ft", label: "ALT_FT" },
+                      { key: "mach", label: "MACH" },
+                      { key: "distance_nm", label: "DIST_NM" },
+                      { key: "duration_min", label: "TIME_MIN" },
+                      { key: "thrust_kN", label: "THRUST_KN" },
+                      { key: "tsfc_g_kNs", label: "TSFC_G_KNS" },
+                      { key: "fuel_burn_kg", label: "FUEL_BURN_KG" }
+                    ];
+                    exportTableCsv("aetherx_mission_phases", cols, phases);
+                  }}>EXPORT CSV</button>
+                  <button className="table-export-btn" onClick={() => exportTableJson("aetherx_mission_phases", phases)}>EXPORT JSON</button>
+                </div>
               </div>
               <div className="table-container">
                 <table className="blueprint-table">
@@ -1367,7 +1388,7 @@ DOMAINS_5_TO_9 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[INPUT] SURROGATE EVALUATION</span>
-                <span className="tech-tag optimal">&lt; 0.25 MS LATENCY</span>
+                <span className="tech-tag info">VALIDATION: TIER C [SMT KRIGING / LOOCV]</span>
               </div>
               <div className="panel-card-body">
                 <HudSlider label="ALTITUDE" value={p.alt_ft} min={0} max={45000} step={1000} unit="FT" onChange={v => setVal("alt_ft", v)} />
@@ -1381,6 +1402,8 @@ DOMAINS_5_TO_9 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip metadata={pred?.metadata || { fidelity_level: "SMT Kriging Gaussian Process", iterations: 1, residual_norm: 0.0 }} />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SURROGATE ERROR</div>
@@ -1575,24 +1598,36 @@ DOMAINS_5_TO_9 = """
       );
     }
 
-    function HybridTradeStudyChart({ tradeData }) {
+    function HybridTradeStudyChart({ tradeData, currentPoint }) {
       const ref = useRef(null);
       const pts = Array.isArray(tradeData) ? tradeData : (tradeData?.points || []);
 
       const chartData = pts.length > 0 ? {
-        datasets: [{
-          label: "FUEL FLOW REDUCTION (%) VS HYBRID RATIO",
-          data: pts.map(p => ({
-            x: p.x != null ? p.x : (p.hp_ratio || p.HP || 0),
-            y: p.fuel_saved_percent != null ? p.fuel_saved_percent : (p.fuel_savings_pct || p.savings || 0)
-          })),
-          borderColor: "#10B981",
-          backgroundColor: "rgba(16, 185, 129, 0.12)",
-          fill: true,
-          tension: 0.25,
-          pointRadius: 3,
-          showLine: true
-        }]
+        datasets: [
+          {
+            label: "FUEL FLOW REDUCTION (%) VS HYBRID RATIO",
+            data: pts.map(p => ({
+              x: p.x != null ? p.x : (p.hp_ratio || p.HP || 0),
+              y: p.fuel_saved_percent != null ? p.fuel_saved_percent : (p.fuel_savings_pct || p.savings || 0)
+            })),
+            borderColor: "#10B981",
+            backgroundColor: "rgba(16, 185, 129, 0.12)",
+            fill: true,
+            tension: 0.25,
+            pointRadius: 3,
+            showLine: true
+          },
+          ...(currentPoint && currentPoint.hp != null && currentPoint.savings != null ? [{
+            label: `OPERATING POINT (HP ${(currentPoint.hp * 100).toFixed(0)}%, ${(currentPoint.savings).toFixed(1)}%)`,
+            data: [{ x: currentPoint.hp, y: currentPoint.savings }],
+            pointRadius: 8,
+            pointStyle: "rectRot",
+            pointBackgroundColor: "#F59E0B",
+            borderColor: "#FFFFFF",
+            borderWidth: 2,
+            showLine: false
+          }] : [])
+        ]
       } : null;
 
       useNeonChart(ref, "line", chartData, {
@@ -1766,7 +1801,7 @@ DOMAINS_5_TO_9 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[INPUT] HYBRID POWERTRAIN</span>
-                <span className="tech-tag optimal">{p.architecture.toUpperCase()}</span>
+                <span className="tech-tag info">VALIDATION: TIER C [FIRST-LAW POWER CONSERVATION]</span>
               </div>
               <div className="panel-card-body">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px", marginBottom: "10px" }}>
@@ -1814,6 +1849,8 @@ DOMAINS_5_TO_9 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
+            <SolverStatusStrip metadata={res?.metadata} fidelity="First-Law Power Conservation" />
+
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] HYBRID SOLVER ERROR</div>
@@ -1858,7 +1895,7 @@ DOMAINS_5_TO_9 = """
                       <span className="tech-tag optimal">PARAMETRIC STUDY</span>
                     </div>
                     <div className="panel-card-body">
-                      <HybridTradeStudyChart tradeData={tradeRes} />
+                      <HybridTradeStudyChart tradeData={tradeRes} currentPoint={{ hp: p.hybrid_power_ratio_HP, savings: fuelSavings }} />
                     </div>
                   </div>
                 </div>
@@ -1939,7 +1976,21 @@ DOMAINS_5_TO_9 = """
                 <div className="panel-card">
                   <div className="panel-card-header">
                     <span>[FLIGHT-ORBIT] 6-PHASE HYBRID POWER & BATTERY DEPLETION TABLE</span>
-                    <span className="tech-tag optimal">NUMERICAL INTEGRATION</span>
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      <button className="table-export-btn" onClick={() => {
+                        const cols = [
+                          { key: "name", label: "PHASE" },
+                          { key: "duration_min", label: "DURATION_MIN" },
+                          { key: "gt_power_kW", label: "GT_POWER_KW" },
+                          { key: "battery_power_kW", label: "BATT_POWER_KW" },
+                          { key: "fuel_burned_kg", label: "FUEL_BURN_KG" },
+                          { key: "elec_energy_kWh", label: "ELEC_ENERGY_KWH" },
+                          { key: "end_soc", label: "END_SOC" }
+                        ];
+                        exportTableCsv("aetherx_hybrid_phases", cols, missionRes?.phases || []);
+                      }}>EXPORT CSV</button>
+                      <button className="table-export-btn" onClick={() => exportTableJson("aetherx_hybrid_phases", missionRes?.phases || [])}>EXPORT JSON</button>
+                    </div>
                   </div>
                   <div className="table-container">
                     <table className="blueprint-table">

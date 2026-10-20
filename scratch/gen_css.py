@@ -347,6 +347,14 @@ CSS_CONTENT = """
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      outline: none;
+    }
+    .kpi-block:hover, .kpi-block:focus {
+      border-color: var(--accent-cyan);
+    }
+    .kpi-block:hover .kpi-provenance-popover,
+    .kpi-block:focus .kpi-provenance-popover {
+      display: block;
     }
 
     .kpi-label {
@@ -355,6 +363,120 @@ CSS_CONTENT = """
       letter-spacing: 0.5px;
       text-transform: uppercase;
       margin-bottom: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .kpi-prov-icon {
+      font-size: 9px;
+      color: var(--accent-cyan);
+      margin-left: 4px;
+      cursor: help;
+      opacity: 0.8;
+    }
+
+    .kpi-provenance-popover {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 290px;
+      background: #12151C;
+      border: 1px solid var(--accent-cyan);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85);
+      padding: 8px 10px;
+      z-index: 1000;
+      pointer-events: none;
+      font-size: 9px;
+      line-height: 1.4;
+      color: #CBD5E1;
+      margin-top: 4px;
+    }
+
+    .kpi-provenance-title {
+      font-weight: 700;
+      color: var(--accent-cyan);
+      font-size: 9.5px;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+      padding-bottom: 3px;
+      text-transform: uppercase;
+    }
+
+    .kpi-prov-row {
+      display: flex;
+      margin-bottom: 3px;
+    }
+
+    .kpi-prov-label {
+      width: 72px;
+      flex-shrink: 0;
+      color: var(--text-silver);
+      font-weight: 600;
+      font-size: 8.5px;
+    }
+
+    .kpi-prov-val {
+      color: var(--text-white);
+      word-break: break-word;
+      font-size: 8.5px;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+       SOLVER STATUS TELEMETRY STRIP (STAGE 7)
+       ════════════════════════════════════════════════════════════════════════ */
+    .solver-status-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0E1015;
+      border: 1px solid var(--border-hairline);
+      padding: 4px 10px;
+      margin-bottom: 8px;
+      font-size: 9.5px;
+    }
+
+    .strip-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .strip-item {
+      color: var(--text-silver);
+    }
+
+    .strip-sep {
+      color: var(--border-hairline);
+    }
+
+    /* Slider Range Indicators */
+    .slider-range {
+      font-size: 8px;
+      color: var(--text-dim);
+      margin-left: 6px;
+      font-weight: 400;
+    }
+
+    /* Table Export Controls */
+    .table-export-btn {
+      background: #161920;
+      border: 1px solid var(--border-hairline);
+      color: var(--text-silver);
+      font-size: 8.5px;
+      font-weight: 600;
+      padding: 2px 7px;
+      cursor: pointer;
+      border-radius: 0;
+      transition: all 0.15s ease;
+    }
+    .table-export-btn:hover {
+      background: #242832;
+      color: var(--text-white);
+      border-color: var(--accent-amber);
     }
 
     .kpi-value {

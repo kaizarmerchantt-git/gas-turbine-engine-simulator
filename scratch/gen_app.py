@@ -186,8 +186,8 @@ APP_MAIN = """
 
             {/* 26px Bottom Telemetry Footer */}
             <footer className="app-footer">
-              <div>ENGINE KERNEL: CANTERA 3.0 + NUMPY VECTORIZED</div>
-              <div>BREGUET RANGE INTEGRATOR: STABLE</div>
+              <div>ENGINE KERNEL: FIRST-PRINCIPLES NASA-9 REAL GAS + NUMPY VECTORIZED</div>
+              <div>MISSION INTEGRATOR: SEGMENTED NUMERICAL INTEGRATOR</div>
               <div>AETHER-X BUILD v0.6 OBSIDIAN</div>
             </footer>
           </div>

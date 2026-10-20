@@ -2,23 +2,329 @@ COMMON_COMPONENTS = """
     const { useState, useEffect, useRef, useCallback, useMemo, useContext, createContext } = React;
     const API = "";
 
-    // ── Number Formatters ─────────────────────────────────────────────────────
+    // ── Number Formatters (Stage 7: No silent dummy '---' or fake zeros) ──────
     function fmt(val, dec = 2) {
-      if (val === null || val === undefined || isNaN(val)) return "---";
+      if (val === null || val === undefined || isNaN(val)) return "NOT COMPUTED";
       return Number(val).toFixed(dec);
     }
 
     function fmtInt(val) {
-      if (val === null || val === undefined || isNaN(val)) return "---";
+      if (val === null || val === undefined || isNaN(val)) return "NOT COMPUTED";
       return Math.round(Number(val)).toLocaleString();
     }
 
     function fmtPct(val, dec = 1) {
-      if (val === null || val === undefined || isNaN(val)) return "---";
+      if (val === null || val === undefined || isNaN(val)) return "NOT COMPUTED";
       const num = Number(val);
       const pct = num <= 1.0 && num > 0.0 ? num * 100 : num;
       return `${pct.toFixed(dec)}%`;
     }
+
+    // ── Table Exporters (CSV / JSON) ──────────────────────────────────────────
+    function exportTableCsv(filename, columns, rows) {
+      if (!rows || !rows.length) return;
+      const headerLine = columns.map(c => `"${c.label || c.key}"`).join(",");
+      const rowLines = rows.map(r => {
+        return columns.map(c => {
+          const val = r[c.key] ?? "";
+          return typeof val === "string" ? `"${val.replace(/"/g, '""')}"` : val;
+        }).join(",");
+      });
+      const csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent([headerLine, ...rowLines].join("\\n"));
+      const link = document.createElement("a");
+      link.setAttribute("href", csvContent);
+      link.setAttribute("download", `${filename}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function exportTableJson(filename, data) {
+      if (!data) return;
+      const jsonContent = "data:application/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+      const link = document.createElement("a");
+      link.setAttribute("href", jsonContent);
+      link.setAttribute("download", `${filename}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // ── Number Provenance Register (AN-1 / Stage 7) ───────────────────────────
+    const NUMBER_PROVENANCE_REGISTRY = {
+      // Domain 01 Turbojet
+      "NET THRUST (Fn)": {
+        eq: "F_n = mdot_air * (V_exit - V_0) + (P_exit - P_0) * A_exit",
+        source: "Conservation of Momentum / NASA SP-290",
+        fidelity: "NASA-9 Polynomial Real Gas (McBride 2002)",
+        validity: "Converged Brayton Cycle (M0 in [0, 2.5])"
+      },
+      "NET THRUST": {
+        eq: "F_n = mdot_air * (V_exit - V_0) + (P_exit - P_0) * A_exit",
+        source: "Conservation of Momentum / NASA SP-290",
+        fidelity: "NASA-9 Polynomial Real Gas",
+        validity: "Converged Cycle"
+      },
+      "GROSS THRUST (Fg)": {
+        eq: "F_g = (F_spec + V_0) * mdot_air",
+        source: "Gross Momentum Flux at Nozzle Exit",
+        fidelity: "1D Real Gas Dynamics",
+        validity: "F_g >= F_n"
+      },
+      "RAM DRAG (Fram)": {
+        eq: "F_ram = mdot_air * V_0",
+        source: "Freestream Capture Momentum",
+        fidelity: "ISA Atmosphere & Flight Speed",
+        validity: "V_0 = M_0 * a_0"
+      },
+      "FUEL MASS FLOW": {
+        eq: "mdot_f = FAR * mdot_air (FAR from LHV enthalpy balance)",
+        source: "Combustor Energy Balance / McBride et al.",
+        fidelity: "Sensible Enthalpy vs 298.15K (LHV = 43.124 MJ/kg)",
+        validity: "FAR in [0.005, 0.06]"
+      },
+      "SPECIFIC FUEL CONS (TSFC)": {
+        eq: "TSFC = mdot_f / F_n",
+        source: "SAE AIR1168 / ISO 2314 Standard",
+        fidelity: "Real Gas Derived Metric",
+        validity: "F_n > 0.0"
+      },
+      "AIR MASS FLOW": {
+        eq: "mdot_air = rho * A * V (Nozzle Choking Continuity)",
+        source: "1D Compressible Flow Continuity",
+        fidelity: "Variable Gamma Flow Function",
+        validity: "Mach <= 1.0 (Throat Choked)"
+      },
+      "CORE AIR FLOW": {
+        eq: "mdot_core = mdot_total / (1 + BPR)",
+        source: "Bypass Ratio Split Definition",
+        fidelity: "1D Flow Continuity",
+        validity: "mdot_core > 0"
+      },
+      "BYPASS AIR FLOW": {
+        eq: "mdot_byp = mdot_total * BPR / (1 + BPR)",
+        source: "Bypass Ratio Split Definition",
+        fidelity: "1D Flow Continuity",
+        validity: "mdot_byp >= 0"
+      },
+      "THERMAL EFFICIENCY": {
+        eq: "eta_th = delta_KE / (mdot_f * LHV)",
+        source: "First Law of Thermodynamics",
+        fidelity: "Enthalpy Jump Recovery",
+        validity: "0.0 <= eta_th <= 1.0"
+      },
+      "PROPULSIVE EFFICIENCY": {
+        eq: "eta_p = 2 * V_0 / (V_exit + V_0)",
+        source: "Froude Propulsive Efficiency",
+        fidelity: "Kinetic Energy Ratio",
+        validity: "0.0 <= eta_p <= 1.0"
+      },
+      "OVERALL EFFICIENCY": {
+        eq: "eta_o = eta_th * eta_p",
+        source: "Brayton Overall Energy Efficiency",
+        fidelity: "Product Definition",
+        validity: "0.0 <= eta_o <= 1.0"
+      },
+      "COMPRESSOR CPR": {
+        eq: "CPR = Pt3 / Pt2",
+        source: "Total Pressure Ratio Definition",
+        fidelity: "Stage Aerothermodynamics",
+        validity: "CPR >= 1.0"
+      },
+      // Domain 02 Turbofan
+      "OVERALL PR (OPR)": {
+        eq: "OPR = Pt3 / Pt2 = FPR * CPR_hpc",
+        source: "Dual-Spool Gas Path Pressure Product",
+        fidelity: "Dual-Spool Real Gas Compression",
+        validity: "OPR >= 1.0"
+      },
+      "BYPASS RATIO (BPR)": {
+        eq: "BPR = mdot_bypass / mdot_core",
+        source: "Flow Split Continuity",
+        fidelity: "1D Dual-Stream Aerodynamics",
+        validity: "BPR >= 0.0"
+      },
+      "FAN PRESSURE RATIO": {
+        eq: "FPR = Pt13 / Pt2",
+        source: "Fan Stage Total Pressure Ratio",
+        fidelity: "Isentropic Fan Stage with Real Gas",
+        validity: "FPR in [1.1, 3.0]"
+      },
+      "HPC PRESSURE RATIO": {
+        eq: "CPR_hpc = Pt3 / Pt25",
+        source: "High-Pressure Compressor Total Pressure Ratio",
+        fidelity: "Isentropic Core Stage with Real Gas",
+        validity: "CPR_hpc in [5.0, 45.0]"
+      },
+      "TURBINE INLET TEMP": {
+        eq: "TIT = Tt4 (Combustor Exit Total Temperature)",
+        source: "Combustor Thermodynamic State",
+        fidelity: "NASA-9 Mixture Inversion",
+        validity: "Tt4 in [1000K, 2400K]"
+      },
+      // Domain 04 Off-Design
+      "OFF-DESIGN CPR": {
+        eq: "CPR = f(N_corr, mdot_corr, R-line)",
+        source: "pyCycle Scaled Component Map",
+        fidelity: "Compressor Characteristic Map",
+        validity: "Surge Margin >= 0%"
+      },
+      "SURGE MARGIN": {
+        eq: "SM = (CPR_surge / CPR_op) * (mdot_op / mdot_surge) - 1",
+        source: "NASA SP-290 Turbomachinery Standard",
+        fidelity: "Map Distance to Surge Boundary",
+        validity: "SM >= 10% (Normal Operating Limit)"
+      },
+      "CORRECTED FLOW": {
+        eq: "mdot_corr = mdot * sqrt(theta) / delta",
+        source: "SAE Aerodynamic Scaling",
+        fidelity: "Corrected Parameter Standard",
+        validity: "theta = Tt/288.15K, delta = Pt/101.325kPa"
+      },
+      // Domain 05 Mean-Line
+      "STAGE TOTAL PR": {
+        eq: "PR = (1 + eta_stage * delta_T0 / T01)^(gamma/(gamma-1))",
+        source: "Euler Work Equation (Saravanamuttoo / Dixon)",
+        fidelity: "1D Mean-Line Stage",
+        validity: "de Haller >= 0.72"
+      },
+      "STAGE WORK (dh0)": {
+        eq: "dh0 = U * (C_theta2 - C_theta1)",
+        source: "Euler Turbomachinery Equation",
+        fidelity: "Mean-Line Kinematics",
+        validity: "Conservation of Angular Momentum"
+      },
+      "DE HALLER NUMBER": {
+        eq: "de_Haller = W2 / W1",
+        source: "de Haller (1953) Diffusion Criterion",
+        fidelity: "1D Relative Velocity Deceleration",
+        validity: "de_Haller >= 0.72 (Stall Margin Limit)"
+      },
+      "LIEBLEIN DIFFUSION": {
+        eq: "D = 1 - W2/W1 + |W_theta1 - W_theta2| / (2 * sigma * W1)",
+        source: "Lieblein NASA RM E53D01",
+        fidelity: "Blade Profile Boundary Layer Loading",
+        validity: "D <= 0.60"
+      },
+      // Domain 06 Turboprop
+      "SHAFT POWER": {
+        eq: "P_shaft = eta_mech * mdot * (h_t45 - h_t5)",
+        source: "Free Power Turbine Enthalpy Extraction",
+        fidelity: "NASA-9 Real Gas Expansion",
+        validity: "P_shaft >= 0.0 kW"
+      },
+      "EQUIV SHAFT PWR": {
+        eq: "ESHP = P_shaft_shp + F_jet_lbf / 2.5",
+        source: "FAA / ICAO Turboprop Certification Standard",
+        fidelity: "Equivalent Power Combination",
+        validity: "ESHP >= P_shaft"
+      },
+      "TOTAL THRUST": {
+        eq: "F_total = F_prop + F_jet",
+        source: "Momentum Balance (Propeller + Residual Jet)",
+        fidelity: "Hamilton Standard Propeller Model",
+        validity: "F_total >= 0.0 kN"
+      },
+      "PROP EFFICIENCY": {
+        eq: "eta_prop = eta_max * f(J) * (1 - compressibility_loss)",
+        source: "Hamilton Standard 14D Map with Helical Tip Mach Loss",
+        fidelity: "Compressible Propeller Characteristic",
+        validity: "M_tip <= 0.95"
+      },
+      "PSFC": {
+        eq: "PSFC = mdot_f / P_shaft",
+        source: "Turboprop Power Specific Fuel Consumption",
+        fidelity: "Continuous Energy Ratio",
+        validity: "PSFC in [0.2, 0.6] kg/kWh"
+      },
+      "GEARBOX TORQUE": {
+        eq: "Torque = P_shaft / omega = (P_shaft * 60) / (2 * pi * RPM)",
+        source: "Planetary Reduction Dynamics",
+        fidelity: "Mechanical Conservation",
+        validity: "omega > 0 rad/s"
+      },
+      // Domain 07 Mission
+      "BLOCK FUEL BURN": {
+        eq: "W_f,block = integral(TSFC * Thrust * dt)",
+        source: "Segmented Numerical Trajectory Integration (Aviary/Raymer)",
+        fidelity: "Trapezoidal Numerical Integration",
+        validity: "Weight & Energy Closed"
+      },
+      "TAKEOFF GROSS MASS": {
+        eq: "MTOW = OEW + Payload + Fuel_block + Reserves",
+        source: "Airframe Sizing Formulation (Roskam / Raymer)",
+        fidelity: "Statistical Sizing Iteration",
+        validity: "MTOW >= OEW + Payload"
+      },
+      "BREGUET RANGE": {
+        eq: "R = (V / TSFC) * (L/D) * ln(W_initial / W_final)",
+        source: "Breguet Range Equation (Analytic Constant-L/D Limit)",
+        fidelity: "Closed-Form Analytic Solution",
+        validity: "R_breguet >= 0 NM"
+      },
+      "AVG MISSION TSFC": {
+        eq: "TSFC_avg = W_f,cruise / (Thrust_cruise * t_cruise)",
+        source: "Engine Cycle Coupled Trajectory",
+        fidelity: "Cycle-Coupled Integration",
+        validity: "Coupled to Engine Deck"
+      },
+      // Domain 08 Surrogate
+      "PREDICTED THRUST": {
+        eq: "Fn = y_mean(x) +/- 1.96 * sigma(x)",
+        source: "SMT Kriging / Gaussian Process Model",
+        fidelity: "Latin Hypercube Trained (1000 Cases)",
+        validity: "x inside Latin Hypercube Training Convex Hull"
+      },
+      "PREDICTED TSFC": {
+        eq: "TSFC = y_mean(x)",
+        source: "SMT Kriging with Epistemic Uncertainty",
+        fidelity: "LOOCV R^2 >= 0.99",
+        validity: "x inside Training Hull"
+      },
+      "SOLVE LATENCY": {
+        eq: "Delta_t = performance.now() - t_start",
+        source: "High-Resolution Hardware Timer",
+        fidelity: "Actual Client/Server Wall-Clock",
+        validity: "Latency < 5 ms"
+      },
+      // Domain 09 Hybrid
+      "GAS TURBINE POWER": {
+        eq: "P_gt = P_req * (1 - HP_ratio)",
+        source: "Mechanical Shaft Power Split",
+        fidelity: "First-Law Power Conservation",
+        validity: "P_gt + P_motor = P_req"
+      },
+      "ELECTRIC MOTOR PWR": {
+        eq: "P_motor = P_req * HP_ratio",
+        source: "Electric Assistance Split",
+        fidelity: "Continuous Powertrain Distribution",
+        validity: "P_motor >= 0.0 kW"
+      },
+      "BATTERY DISCHARGE": {
+        eq: "P_batt = P_motor / (eta_inv * eta_bus * eta_motor)",
+        source: "DC Bus Efficiency Transmission Chain",
+        fidelity: "Ohmic + Switching Inverter Losses",
+        validity: "P_batt >= P_motor"
+      },
+      "FUEL SAVINGS": {
+        eq: "Savings = (Fuel_baseline - Fuel_hybrid) / Fuel_baseline",
+        source: "Full Mission Fuel Comparison (0% at HP=0)",
+        fidelity: "Coupled Trajectory Simulation",
+        validity: "Savings = 0.0% at HP=0.0"
+      },
+      "TOTAL DRY MASS": {
+        eq: "M_dry = M_gt + M_motor + M_inv + M_batt + M_tms + M_cables",
+        source: "Component Specific Power Scaling",
+        fidelity: "Physics-Based Component Mass Sum",
+        validity: "Strict Sum Equality"
+      },
+      "TOTAL EFFICIENCY": {
+        eq: "eta_sys = P_shaft_out / (P_fuel_in + P_batt_in)",
+        source: "Overall Energy Conversion Ratio",
+        fidelity: "Powertrain System First Law",
+        validity: "0.0 < eta_sys < 1.0"
+      }
+    };
 
     // ── Global Unit System Context & Conversion Engine ────────────────────────
     const UnitContext = createContext({ unitSystem: "SI", setUnitSystem: () => {} });
@@ -205,12 +511,41 @@ COMMON_COMPONENTS = """
       return chartInstanceRef;
     }
 
-    // ── Avionics Graduated Vernier Slider ─────────────────────────────────────
+    // ── Avionics Graduated Vernier Slider (Stage 7 Range Display & Validation) ─
     function HudSlider({ label, value, min, max, step, unit = "", onChange }) {
+      const handleKeyDown = (e) => {
+        let nextVal = value;
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+          nextVal = Math.min(max, value + step);
+          e.preventDefault();
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+          nextVal = Math.max(min, value - step);
+          e.preventDefault();
+        } else if (e.key === "PageUp") {
+          nextVal = Math.min(max, value + step * 10);
+          e.preventDefault();
+        } else if (e.key === "PageDown") {
+          nextVal = Math.max(min, value - step * 10);
+          e.preventDefault();
+        }
+        if (nextVal !== value) {
+          onChange(Number(nextVal.toFixed(4)));
+        }
+      };
+
+      const handleSliderChange = (e) => {
+        const raw = parseFloat(e.target.value);
+        const valid = Math.min(max, Math.max(min, isNaN(raw) ? min : raw));
+        onChange(Number(valid.toFixed(4)));
+      };
+
       return (
         <div className="slider-group">
           <div className="slider-header">
-            <span className="slider-label">{label}</span>
+            <span className="slider-label">
+              {label}
+              <span className="slider-range">[{min} .. {max}{unit ? " " + unit : ""}]</span>
+            </span>
             <span className="slider-val">{value} {unit && <span style={{ color: "#8E95A5", fontWeight: 400 }}>{unit}</span>}</span>
           </div>
           <input
@@ -220,14 +555,21 @@ COMMON_COMPONENTS = """
             max={max}
             step={step}
             value={value}
-            onChange={e => onChange(parseFloat(e.target.value))}
+            onChange={handleSliderChange}
+            onKeyDown={handleKeyDown}
+            tabIndex={0}
+            role="slider"
+            aria-label={label}
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-valuenow={value}
           />
         </div>
       );
     }
 
-    // ── Stark Titanium White KPI Card ─────────────────────────────────────────
-    function HudKpi({ label, value, unit = "", unitType = null, sub = "", subTag = null, decimals = 2 }) {
+    // ── Stark Titanium White KPI Card with Provenance Tooltip (Stage 7 / AN-1) ──
+    function HudKpi({ label, value, unit = "", unitType = null, sub = "", subTag = null, decimals = 2, provenance = null }) {
       const { unitSystem } = useContext(UnitContext);
       let displayVal = value;
       let displayUnit = unit;
@@ -240,9 +582,19 @@ COMMON_COMPONENTS = """
         displayVal = fmt(value, decimals);
       }
 
+      // Lookup provenance from explicit prop or registry
+      const prov = provenance || NUMBER_PROVENANCE_REGISTRY[label] || (label && NUMBER_PROVENANCE_REGISTRY[label.split("(")[0].trim()]);
+
+      const provTooltip = prov 
+        ? `[PROVENANCE & VALIDITY]\\nModel/Eq: ${prov.eq}\\nSource: ${prov.source}\\nFidelity: ${prov.fidelity}\\nEnvelope: ${prov.validity}`
+        : `[PROVENANCE]\\nParameter: ${label}\\nUnit: ${displayUnit || "Dimensionless"}`;
+
       return (
-        <div className="kpi-block">
-          <div className="kpi-label">{label}</div>
+        <div className="kpi-block" title={provTooltip} tabIndex={0} role="region" aria-label={`${label}: ${displayVal} ${displayUnit}`}>
+          <div className="kpi-label">
+            <span>{label}</span>
+            {prov && <span className="kpi-prov-icon" title="View equation & provenance">ℹ</span>}
+          </div>
           <div className="kpi-value">
             {displayVal} {displayUnit && <span className="kpi-unit">{displayUnit}</span>}
           </div>
@@ -252,6 +604,59 @@ COMMON_COMPONENTS = """
               {sub && <span>{sub}</span>}
             </div>
           )}
+          {prov && (
+            <div className="kpi-provenance-popover">
+              <div className="kpi-provenance-title">{label} // PROVENANCE</div>
+              <div className="kpi-prov-row"><span className="kpi-prov-label">MODEL/EQ:</span><span className="kpi-prov-val">{prov.eq}</span></div>
+              <div className="kpi-prov-row"><span className="kpi-prov-label">SOURCE:</span><span className="kpi-prov-val">{prov.source}</span></div>
+              <div className="kpi-prov-row"><span className="kpi-prov-label">FIDELITY:</span><span className="kpi-prov-val">{prov.fidelity}</span></div>
+              <div className="kpi-prov-row"><span className="kpi-prov-label">VALIDITY:</span><span className="kpi-prov-val">{prov.validity}</span></div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Solver Status Telemetry Strip (Stage 7) ───────────────────────────────
+    function SolverStatusStrip({ metadata, status = "ok", converged = true, iterations = 1, residual = 0.0, warnings = [], clampedInputs = {}, fidelity = null }) {
+      const isOk = (metadata?.status === "ok" || status === "ok") && (metadata?.converged ?? converged ?? true);
+      const isInfeasible = metadata?.status === "infeasible" || status === "infeasible" || (!isOk && (metadata?.warnings?.length > 0 || warnings?.length > 0));
+
+      const iters = metadata?.iterations ?? iterations ?? 1;
+      const resNorm = metadata?.residual_norm ?? residual ?? 0.0;
+      const fid = metadata?.fidelity_level || fidelity || "NASA-9 REAL GAS";
+      const warnList = metadata?.warnings || warnings || [];
+      const clamped = metadata?.clamped_inputs || clampedInputs || {};
+
+      return (
+        <div className="solver-status-strip">
+          <div className="strip-group">
+            <span className={`status-dot ${isOk ? "" : (isInfeasible ? "warning" : "error")}`} />
+            <span className="strip-item">
+              <strong style={{ color: isOk ? "var(--accent-emerald)" : (isInfeasible ? "var(--accent-amber)" : "var(--accent-crimson)") }}>
+                {isOk ? "SOLVER: CONVERGED (ONLINE)" : (isInfeasible ? "SOLVER: INFEASIBLE ENVELOPE" : "SOLVER: FAULT")}
+              </strong>
+            </span>
+            <span className="strip-sep">|</span>
+            <span className="strip-item">ITERS: <strong style={{ color: "#F2F4F8" }}>{iters}</strong></span>
+            <span className="strip-sep">|</span>
+            <span className="strip-item">RESIDUAL: <strong style={{ color: "#F2F4F8" }}>{typeof resNorm === 'number' ? resNorm.toExponential(2) : resNorm}</strong></span>
+            <span className="strip-sep">|</span>
+            <span className="strip-item">FIDELITY: <strong style={{ color: "var(--accent-cyan)" }}>{fid.toUpperCase()}</strong></span>
+          </div>
+
+          <div className="strip-group">
+            {Object.keys(clamped).length > 0 && (
+              <span className="tech-tag warning" title={JSON.stringify(clamped)}>
+                CLAMPED: {Object.keys(clamped).join(", ")}
+              </span>
+            )}
+            {warnList.length > 0 && (
+              <span className="tech-tag warning" title={warnList.join("; ")}>
+                {warnList[0]}
+              </span>
+            )}
+          </div>
         </div>
       );
     }
@@ -299,8 +704,54 @@ COMMON_COMPONENTS = """
       const pUnit = unitSystem === "IMPERIAL" ? "psia" : "kPa";
       const vUnit = unitSystem === "IMPERIAL" ? "kts" : "m/s";
 
+      const handleExportCsv = () => {
+        const cols = [
+          { key: "id", label: "STATION" },
+          { key: "desc", label: "DESCRIPTION" },
+          { key: "Tt", label: `Tt_${tUnit}` },
+          { key: "Pt", label: `Pt_${pUnit}` },
+          { key: "Ts", label: `Ts_${tUnit}` },
+          { key: "Ps", label: `Ps_${pUnit}` },
+          { key: "M", label: "MACH" },
+          { key: "V", label: `VEL_${vUnit}` },
+          { key: "entropy", label: "ENTROPY_J_kgK" }
+        ];
+        const rows = stnArray.map(s => {
+          const id = s.id || s.station || s.num || "";
+          const desc = s.label || s.desc || `Station ${id}`;
+          const rawTt = s.T_total_K ?? s.T0 ?? s.Tt ?? s.T_K;
+          const rawPt = s.p_total_kPa ?? s.p0_kPa ?? (s.p0 ? s.p0 / 1000 : null);
+          const rawTs = s.T_static_K ?? s.Ts ?? s.Ts_K;
+          const rawPs = s.p_static_kPa ?? s.ps_kPa ?? (s.p ? s.p / 1000 : null);
+          const M = s.mach ?? s.Mach ?? s.M ?? 0.0;
+          const rawV = s.velocity_ms ?? s.V_ms ?? s.V ?? 0.0;
+          const entropy = s.s_JkgK ?? s.s ?? 6850.0;
+
+          return {
+            id: `STN ${id}`,
+            desc,
+            Tt: convertUnitVal(rawTt, "temp", unitSystem),
+            Pt: convertUnitVal(rawPt, "pressure", unitSystem),
+            Ts: convertUnitVal(rawTs, "temp", unitSystem),
+            Ps: convertUnitVal(rawPs, "pressure", unitSystem),
+            M,
+            V: convertUnitVal(rawV, "velocity", unitSystem),
+            entropy
+          };
+        });
+        exportTableCsv("aetherx_stations", cols, rows);
+      };
+
+      const handleExportJson = () => {
+        exportTableJson("aetherx_stations", stnArray);
+      };
+
       return (
         <div className="table-container">
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "4px", marginBottom: "4px", padding: "2px 4px" }}>
+            <button className="table-export-btn" onClick={handleExportCsv} title="Export CSV Table">EXPORT CSV</button>
+            <button className="table-export-btn" onClick={handleExportJson} title="Export JSON Table">EXPORT JSON</button>
+          </div>
           <table className="blueprint-table">
             <thead>
               <tr>
@@ -341,6 +792,14 @@ COMMON_COMPONENTS = """
                     key={idx} 
                     className={isSelected ? "selected" : ""} 
                     onClick={() => onSelectStation && onSelectStation(id)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        onSelectStation && onSelectStation(id);
+                        e.preventDefault();
+                      }
+                    }}
+                    tabIndex={0}
+                    role="row"
                     style={{ cursor: onSelectStation ? "pointer" : "default" }}
                   >
                     <td style={{ color: "var(--accent-amber)", fontWeight: 700 }}>STN {id}</td>
