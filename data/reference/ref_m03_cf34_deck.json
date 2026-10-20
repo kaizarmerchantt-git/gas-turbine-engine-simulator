@@ -1,0 +1,116 @@
+{
+  "metadata": {
+    "module": "03_cf34_deck",
+    "oracle": "Aviary EngineDeck Standard",
+    "oracle_version": "1.0.3-dev",
+    "timestamp": "2026-10-20T13:04:11.964724",
+    "description": "Aviary turbofan propulsion deck standard test points and interpolation reference"
+  },
+  "points": [
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    },
+    {
+      "mach": 0.0,
+      "altitude_ft": 0.0,
+      "throttle": 1.0,
+      "thrust_lbf": 0.0,
+      "fuel_flow_lbm_hr": 0.0
+    }
+  ]
+}

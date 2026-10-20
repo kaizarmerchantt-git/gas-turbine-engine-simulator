@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "module": "02_turbofan",
+    "oracle": "Cantera Real-Gas Thermo-Cycle Benchmark",
+    "oracle_version": "3.2.0",
+    "timestamp": "2026-10-20T13:04:11.960293",
+    "description": "High-bypass 2-spool turbofan cycle reference solution using Cantera real-gas equilibrium"
+  },
+  "inputs": {
+    "altitude_m": 0.0,
+    "mach": 0.0,
+    "total_mass_flow_kg_s": 100.0,
+    "bypass_ratio": 5.0,
+    "fan_pressure_ratio": 1.6,
+    "overall_pressure_ratio": 30.0,
+    "tit_K": 1500.0,
+    "fan_isentropic_eff": 0.89,
+    "compressor_isentropic_eff": 0.88,
+    "hpt_isentropic_eff": 0.9,
+    "lpt_isentropic_eff": 0.91,
+    "combustor_dp_loss": 0.04,
+    "fuel_lhv_J_kg": 43100000.0
+  },
+  "results_si": {
+    "net_thrust_kN": 32.75508055393622,
+    "bypass_thrust_kN": 23.980555601639654,
+    "core_thrust_kN": 8.774524952296565,
+    "tsfc_g_kN_s": 9.590527098793613,
+    "fuel_flow_kg_s": 0.314138487675693,
+    "tt13_fan_exit_K": 334.69656985818233,
+    "pt13_fan_exit_kPa": 162.12,
+    "tt3_hpc_exit_K": 808.3854327447727,
+    "pt3_hpc_exit_kPa": 3039.75,
+    "tt45_hpt_exit_K": 1076.8722565374778,
+    "pt45_hpt_exit_kPa": 619.5193045687286,
+    "tt5_lpt_exit_K": 826.4804280800553,
+    "pt5_lpt_exit_kPa": 193.77910199331504,
+    "v_core_nozzle_m_s": 526.4714971377938,
+    "v_bypass_nozzle_m_s": 287.76666721967587
+  }
+}
