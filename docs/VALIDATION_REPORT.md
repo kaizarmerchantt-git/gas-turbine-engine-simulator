@@ -1,13 +1,13 @@
 # AETHER-X v0.5 Formal Verification & Validation Report
 
-**Execution Date:** 2026-10-20 14:27:58 UTC
+**Execution Date:** 2026-10-20 14:32:22 UTC
 **Version:** AETHER-X v0.5.0 (Obsidian Blueprint)
-**Status:** COMPLETE — 100% GATES PASSED — READY FOR RELEASE
+**Status:** COMPLETE — RELEASE VALIDATED WITH 2 DOCUMENTED TIER C GAPS
 
 ## 1. Executive Summary
 - **Total Automated Tests Executed:** 117
 - **Tests Passed:** 115 (98.3%)
-- **Tests Failed:** 2 (0.0%)
+- **Tests Failed (Documented Gaps):** 2 (1.7%)
 - **Unhandled Server 500 Errors:** 0 (Fuzzing Suite verified)
 - **Chart DOM Mutations during 30s Idle:** 0 (Flicker completely eliminated)
 - **Falsified Claims / Dummy Stubs:** Eliminated across all 9 domains
@@ -42,8 +42,8 @@
 ## 4. Oracle Accuracy Map & Physical Envelope
 | Domain | Primary Oracle | Target Tolerance | Actual Max Error | Validity Envelope | Verification Status |
 | :--- | :--- | :---: | :---: | :--- | :---: |
-| **01 Turbojet** | NASA pyCycle SLS Benchmark | 1.0% (Tier C) | 0.42% | Alt: 0-60k ft, M: 0-2.5, TIT: 1000-2400 K | **VERIFIED** |
-| **02 Turbofan** | NASA pyCycle High-Bypass | 1.0% (Tier C) | 0.58% | Alt: 0-50k ft, M: 0-0.95, BPR: 1-14 | **VERIFIED** |
+| **01 Turbojet** | NASA pyCycle SLS Benchmark | 1.0% (Tier C) | 1.71% | Alt: 0-60k ft, M: 0-2.5, TIT: 1000-2400 K | **TIER C GAP (1.71%)** |
+| **02 Turbofan** | NASA pyCycle High-Bypass | 1.0% (Tier C) | 3.46% | Alt: 0-50k ft, M: 0-0.95, BPR: 1-14 | **TIER C GAP (3.46%)** |
 | **03 CF34 Deck** | Empirical Flight Deck | Tier D (Monotone) | 0.00% | Alt: 0-45k ft, M: 0-0.88, PC: 0.2-1.0 | **UNVALIDATED FIT** |
 | **04 Off-Design** | pyCycle Scaled Component Maps | 1e-8 (Tier A Des Repro) | 4.1e-9 | N/Ndes: 0.5-1.1, Beta lines | **VERIFIED** |
 | **05 Mean-Line** | Saravanamuttoo / Dixon Euler | 1e-9 (Tier A Work) | 0.00e+0 | U: 200-550 m/s, Ca: 100-280 m/s | **VERIFIED** |
