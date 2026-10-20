@@ -551,7 +551,7 @@ DOMAINS_1_TO_4 = """
 
             {/* Top 4 KPI Cards (Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="CF34-10E Calibrated" />
+              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="CF34-10E (UNVALIDATED EMPIRICAL FIT)" />
               <HudKpi label="FUEL FLOW (Wf)" value={wf_kgh != null ? wf_kgh : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow_kgh" decimals={1} sub="Empirical Rate" />
               <HudKpi label="TSFC (SPECIFIC FUEL CONS)" value={tsfc != null ? tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="g/(kN·s)" />
               <HudKpi label="CORRECTED AIRFLOW (Wc)" value={wc_kgs != null ? wc_kgs : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Fan Face" />
@@ -584,7 +584,7 @@ DOMAINS_1_TO_4 = """
             <div className="panel-card">
               <div className="panel-card-header">
                 <span>[ENVELOPE] CF34 OPERATIONAL STATUS & CERTIFICATION LIMITS</span>
-                <span className="tech-tag optimal">FAR 33 / FAR 25 CERTIFIED</span>
+                <span className="tech-tag" style={{borderColor: '#F59E0B', color: '#F59E0B'}}>CF34-10E // UNVALIDATED EMPIRICAL FIT</span>
               </div>
               <div className="panel-card-body">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", color: "var(--text-silver)" }}>

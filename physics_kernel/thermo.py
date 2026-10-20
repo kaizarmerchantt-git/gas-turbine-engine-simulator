@@ -231,7 +231,14 @@ def mixture_properties(T: float, far: float = 0.0) -> Tuple[float, float, float,
     # Convert molar quantities [J/mol] to mass specific [J/kg]
     mass_factor = 1.0 / (mw_mix * 1e-3)
     cp_mass = cp_molar * mass_factor
-    h_mass = h_molar * mass_factor
+    
+    # Sensible enthalpy relative to T_ref = 298.15 K
+    h_ref_molar = 0.0
+    for sp, x_i in comp.items():
+        _, h_rt_ref, _ = _eval_nasa9_species(sp, 298.15)
+        h_ref_molar += x_i * (h_rt_ref * R_UNIVERSAL * 298.15)
+
+    h_mass = (h_molar - h_ref_molar) * mass_factor
     s0_mass = s0_molar * mass_factor
 
     gamma = cp_mass / (cp_mass - r_mix)
