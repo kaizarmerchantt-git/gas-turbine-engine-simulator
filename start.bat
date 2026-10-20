@@ -33,16 +33,36 @@ if "%PY_CMD%"=="" (
 
 for /f "tokens=*" %%v in ('%PY_CMD% --version 2^>^&1') do echo [OK] Python runtime: %%v
 
+REM ── Check/Setup Virtual Environment ─────────────────────────────────────────
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PY_CMD=%~dp0.venv\Scripts\python.exe"
+    echo [OK] Using virtual environment: %~dp0.venv
+) else (
+    REM Check if core dependencies are missing from system Python
+    %PY_CMD% -c "import fastapi, uvicorn, pydantic, numpy" >nul 2>&1
+    if errorlevel 1 (
+        echo [SETUP] Core packages missing. Creating virtual environment in .venv ...
+        %PY_CMD% -m venv "%~dp0.venv"
+        if not errorlevel 1 (
+            echo [SETUP] Installing dependencies from backend\requirements.txt ...
+            "%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0backend\requirements.txt"
+            if not errorlevel 1 (
+                set "PY_CMD=%~dp0.venv\Scripts\python.exe"
+                echo [OK] Virtual environment initialized.
+            )
+        )
+    )
+)
+
 REM ── Check Cantera ─────────────────────────────────────────────────────────────
 %PY_CMD% -c "import cantera" >nul 2>&1
 if errorlevel 1 (
-    echo [WARNING] Cantera not found in current Python environment.
-    echo   The Turbojet model requires Cantera for chemical equilibrium.
-    echo   Install via: pip install cantera==3.0.0
-    echo   Other models remain fully functional without Cantera.
+    echo [NOTICE] Cantera not detected in current Python environment.
+    echo   Core engine cycles run natively using high-fidelity NASA-9 polynomials.
+    echo   Cantera is optional for standalone oracle cross-validation.
     echo.
 ) else (
-    echo [OK] Cantera verified.
+    echo [OK] Cantera verified (Oracle cross-validation available).
 )
 
 REM ── Check CF34 Deck ───────────────────────────────────────────────────────────
@@ -70,6 +90,7 @@ echo   Web HUD:     http://localhost:8000/ (v0.5 Obsidian Blueprint)
 echo   Legacy HUD:  http://localhost:8000/legacy (v0.4 Reference)
 echo   API Docs:    http://localhost:8000/docs
 echo.
+echo Press Ctrl+C in this window or run stop.bat in another terminal to stop the server.
 echo Launching web browser when backend is ready...
 
 set "LAUNCH_PY=%PY_CMD%"
