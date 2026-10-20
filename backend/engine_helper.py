@@ -413,3 +413,149 @@ def calc_nozzle(
 
     gas_out.TP = T, p
     return choked, mdot, M_out, F
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Brayton Cycle T-s Curve Generator (True Isobaric Integration)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_brayton_ts_loop(stations: dict, is_turbofan: bool = False, n_isobar_pts: int = 12) -> dict:
+    """
+    Constructs a continuous, closed thermodynamic coordinate loop for the Brayton cycle
+    with authentic logarithmic isobaric heat addition and rejection curvature.
+    
+    Returns:
+    --------
+    dict with:
+      - 'core_loop': list of dicts with keys: station, label, s_JkgK, T_K, delta_s_kJkgK, P_kPa
+      - 'bypass_loop': list of dicts for turbofan bypass expansion
+    """
+    if not stations:
+        return {"core_loop": [], "bypass_loop": []}
+
+    st_a = stations.get("a", {})
+    st_1 = stations.get("1", {})
+    st_2 = stations.get("2", {})
+    st_3 = stations.get("3", {})
+    st_4 = stations.get("4", {})
+    st_5 = stations.get("5", {})
+    st_8 = stations.get("8", {})
+
+    sa = float(st_a.get("s_JkgK", 6850.0))
+    Ta = float(st_a.get("T_K", 288.15))
+    Pa = float(st_a.get("P_total_kPa", 101.325))
+
+    core_loop = []
+
+    def make_pt(s_val, t_val, sid="", lbl="", p_val=None):
+        return {
+            "station": sid,
+            "label": lbl,
+            "s_JkgK": round(float(s_val), 1),
+            "T_K": round(float(t_val), 1),
+            "delta_s_kJkgK": round(float(s_val - sa) / 1000.0, 4),
+            "P_kPa": round(float(p_val), 2) if p_val is not None else None,
+        }
+
+    # Station a: Ambient
+    core_loop.append(make_pt(sa, Ta, "a", "Ambient Freestream", Pa))
+
+    # Station 1: Inlet entry
+    if "1" in stations:
+        s1 = float(st_1.get("s_JkgK", sa))
+        T1 = float(st_1.get("T_K", Ta))
+        core_loop.append(make_pt(s1, T1, "1", "Inlet Entry", st_1.get("P_total_kPa")))
+
+    # Station 2: Fan / Compressor face
+    s2 = float(st_2.get("s_JkgK", sa))
+    T2 = float(st_2.get("T_K", Ta))
+    core_loop.append(make_pt(s2, T2, "2", "Compressor Face", st_2.get("P_total_kPa")))
+
+    # Station 21 (for turbofan): Core face
+    if is_turbofan and "21" in stations:
+        st_21 = stations["21"]
+        s2 = float(st_21.get("s_JkgK", s2))
+        T2 = float(st_21.get("T_K", T2))
+        core_loop.append(make_pt(s2, T2, "21", "Core HPC Face", st_21.get("P_total_kPa")))
+
+    # Station 3: Compressor exit
+    s3 = float(st_3.get("s_JkgK", s2 + 100.0))
+    T3 = float(st_3.get("T_K", T2 * 2.0))
+    P3 = float(st_3.get("P_total_kPa", Pa * 8.0))
+
+    # Intermediate points along compression (polytropic/isentropic leg 2 -> 3)
+    n_comp = 4
+    for i in range(1, n_comp):
+        f = i / float(n_comp)
+        t_i = T2 + f * (T3 - T2)
+        s_i = s2 + f * (s3 - s2)
+        core_loop.append(make_pt(s_i, t_i, "", f"Compression Stage {i}"))
+
+    core_loop.append(make_pt(s3, T3, "3", "HPC Exit / Combustor Inlet", P3))
+
+    # Station 4: Combustor exit
+    s4 = float(st_4.get("s_JkgK", s3 + 1000.0))
+    T4 = float(st_4.get("T_K", 1500.0))
+    P4 = float(st_4.get("P_total_kPa", P3 * 0.95))
+
+    # Isobaric Heat Addition leg (3 -> 4): T(s) = T3 * exp((s - s3)/cp)
+    for i in range(1, n_isobar_pts):
+        f = i / float(n_isobar_pts)
+        t_i = T3 + f * (T4 - T3)
+        log_ratio = np.log(max(1e-4, t_i / T3)) / max(1e-4, np.log(max(1e-4, T4 / T3)))
+        s_i = s3 + (s4 - s3) * log_ratio
+        core_loop.append(make_pt(s_i, t_i, "", f"Combustor Heat Addition ({int(f*100)}%)", P3))
+
+    core_loop.append(make_pt(s4, T4, "4", "Combustor Exit / Turbine Inlet", P4))
+
+    # Station 41 (HPT exit if turbofan)
+    if is_turbofan and "41" in stations:
+        st_41 = stations["41"]
+        s41 = max(s4, float(st_41.get("s_JkgK", s4 + 50.0)))
+        T41 = float(st_41.get("T_K", T4 * 0.8))
+        core_loop.append(make_pt(s41, T41, "41", "HPT Exit", st_41.get("P_total_kPa")))
+    else:
+        s41 = s4
+
+    # Station 5: Turbine exit (Second Law: expansion with irreversibilities requires s5 >= s41)
+    s5 = max(s41, float(st_5.get("s_JkgK", s41 + 80.0)))
+    T5 = float(st_5.get("T_K", T4 * 0.65))
+    core_loop.append(make_pt(s5, T5, "5", "Turbine Exit", st_5.get("P_total_kPa")))
+
+    # Station 8: Nozzle exit (s8 >= s5)
+    s8 = max(s5, float(st_8.get("s_JkgK", s5 + 40.0)))
+    T8 = float(st_8.get("T_K", T5 * 0.9))
+    core_loop.append(make_pt(s8, T8, "8", "Nozzle Exit / Exhaust", st_8.get("P_total_kPa")))
+
+    # Atmospheric Isobaric Heat Rejection leg (8 -> a): T(s) = Ta * exp((s - sa)/cp)
+    for i in range(1, n_isobar_pts):
+        f = i / float(n_isobar_pts)
+        t_i = T8 - f * (T8 - Ta)
+        log_ratio = np.log(max(1e-4, t_i / Ta)) / max(1e-4, np.log(max(1e-4, T8 / Ta)))
+        s_i = sa + (s8 - sa) * log_ratio
+        core_loop.append(make_pt(s_i, t_i, "", f"Atmospheric Cooling ({int(f*100)}%)", Pa))
+
+    # Complete closure by re-attaching Station a
+    core_loop.append(make_pt(sa, Ta, "a", "Ambient Closure", Pa))
+
+    # Bypass stream for turbofan
+    bypass_loop = []
+    if is_turbofan and "13" in stations and "18" in stations:
+        st_13 = stations["13"]
+        st_18 = stations["18"]
+        s13 = float(st_13.get("s_JkgK", s2 + 30.0))
+        T13 = float(st_13.get("T_K", T2 * 1.2))
+        s18 = float(st_18.get("s_JkgK", s13 + 20.0))
+        T18 = float(st_18.get("T_K", T13 * 0.95))
+
+        bypass_loop.append(make_pt(s2, T2, "2", "Fan Face", st_2.get("P_total_kPa")))
+        bypass_loop.append(make_pt(s13, T13, "13", "Fan Duct Exit", st_13.get("P_total_kPa")))
+        bypass_loop.append(make_pt(s18, T18, "18", "Bypass Nozzle Exit", st_18.get("P_total_kPa")))
+        # Return to ambient
+        bypass_loop.append(make_pt(sa, Ta, "a", "Ambient Re-mix", Pa))
+
+    return {
+        "core_loop": core_loop,
+        "bypass_loop": bypass_loop,
+    }
+

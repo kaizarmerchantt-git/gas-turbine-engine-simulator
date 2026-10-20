@@ -33,6 +33,8 @@ from mission import (
     compute_drag
 )
 from surrogate import GLOBAL_SURROGATE
+from turbojet import calc_thrust, calc_icao_lto_cycle, DEFAULT_ENG_PARAM, DEFAULT_ENG_PERF
+from physics_turbofan import calc_turbofan, DEFAULT_TF_PARAM, DEFAULT_TF_PERF
 
 
 client = TestClient(app)
@@ -286,4 +288,104 @@ def test_all_new_fastapi_endpoints():
     assert "total_flight_time_hr" in ms_data["summary"]
     assert "current_mission_point" in ms_data
     assert "range_km" in ms_data["current_mission_point"]
+
+
+def test_turboprop_cpr_sweep_and_helical_mach():
+    """Verify CPR sweep, advance ratio J, and helical tip Mach calculation."""
+    sw = run_turboprop_sweep(sweep_param="cpr", n_steps=5)
+    pts = sw["points"]
+    assert len(pts) == 5
+    assert pts[0]["sweep_val"] == 4.0
+    assert pts[-1]["sweep_val"] == 28.0
+
+    # Check advance ratio and helical tip speed
+    pt = pts[2]
+    assert pt["advance_ratio_J"] > 0.0
+    assert pt["tip_mach_helical"] > 0.0
+    assert pt["tip_speed_ms"] > pt["flight_conditions"]["V_inf_ms"]
+
+
+def test_physics_turbofan_sas_bleed_and_gtf():
+    """Verify Secondary Air System (SAS) HPT cooling bleed and GTF reduction ratio."""
+    perf = dict(DEFAULT_TF_PERF)
+    perf["cooling_bleed_frac"] = 0.06
+    perf["gear_ratio"] = 3.0
+    perf["eta_gearbox"] = 0.99
+
+    res = calc_turbofan(eng_param=DEFAULT_TF_PARAM, eng_perf=perf, alt=35000.0, M_i=0.80)
+    assert res["converged"] is True
+    assert res["cooling_bleed_frac"] == 0.06
+    assert res["cooling_bleed_mdot_kgs"] > 0.0
+    assert res["gear_ratio"] == 3.0
+
+    # Verify standardized TSFC metrics: 1 kg/(kN*h) = (1/3.6) g/(kN*s)
+    assert res["TSFC_g_kNs"] is not None
+    assert res["TSFC_kg_kNh"] is not None
+    assert res["TSFC_lbm_lbfh"] is not None
+    assert abs(res["TSFC_kg_kNh"] - res["TSFC_g_kNs"] * 3.6) < 0.2
+    assert abs(res["TSFC_lbm_lbfh"] - res["TSFC_g_kNs"] * 0.03530394) < 0.02
+
+
+def test_turbojet_lefebvre_and_icao_lto_cycle():
+    """Verify Lefebvre kinetic NOx and ICAO Annex 16 4-mode LTO certification cycle."""
+    lto = calc_icao_lto_cycle(eng_param=DEFAULT_ENG_PARAM, eng_perf=DEFAULT_ENG_PERF, alt=0.0, M_i=0.0)
+    modes = lto["modes"]
+    assert len(modes) == 4
+    mode_names = [m["mode"] for m in modes]
+    assert mode_names == ["Takeoff", "Climbout", "Approach", "Taxi/Idle"]
+
+    # Monotonic thrust order across throttle settings
+    assert modes[0]["thrust_kN"] > modes[1]["thrust_kN"] > modes[2]["thrust_kN"] > modes[3]["thrust_kN"]
+
+    # Due to 26 min time at idle, total idle fuel burned is substantial
+    assert modes[3]["fuel_burned_kg"] > 0.0
+    summary = lto["summary"]
+    assert summary["total_lto_time_min"] == 32.9
+    assert summary["total_fuel_burned_kg"] > 50.0
+    assert summary["total_NOx_kg"] > 0.0
+    assert summary["Dp_Foo_NOx_g_kN"] > 0.0
+
+
+def test_meanline_radial_equilibrium_and_airfoil():
+    """Verify Free-Vortex radial equilibrium spanwise variation and 2D blade coords."""
+    stg = solve_compressor_stage(T01=288.15, P01=101325.0, delta_T0=35.0, N_rpm=12000.0)
+    rad = stg["radial_equilibrium"]
+    assert "hub" in rad and "mean" in rad and "tip" in rad
+
+    # First principles Free-Vortex law: Hub reaction < Mean reaction < Tip reaction
+    assert rad["hub"]["reaction"] < rad["mean"]["reaction"] < rad["tip"]["reaction"]
+    # Blade speed increases with radius
+    assert rad["hub"]["U_ms"] < rad["mean"]["U_ms"] < rad["tip"]["U_ms"]
+
+    # Aerodynamic losses
+    losses = stg["aerodynamic_losses"]
+    assert losses["omega_total"] > 0.0
+    assert 0.0 < losses["eta_debit"] < 0.15
+
+    # 2D blade airfoil coords
+    blade = stg["blade_airfoil_2d"]
+    assert len(blade["suction_surface"]) == 25
+    assert len(blade["pressure_surface"]) == 25
+    assert blade["chord_mm"] == 60.0
+
+
+def test_fastapi_lto_and_widened_bounds():
+    """Verify FastAPI endpoints for ICAO LTO emissions and widened envelope bounds."""
+    # 1. ICAO LTO endpoint
+    r = client.post("/api/turbojet/lto_emissions", json={"alt": 0.0, "M_i": 0.0})
+    assert r.status_code == 200
+    data = r.json()
+    assert "modes" in data
+    assert "summary" in data
+    assert "Dp_Foo_NOx_g_kN" in data["summary"]
+
+    # 2. Turboprop CPR sweep endpoint
+    r_tp = client.post("/api/turboprop/sweep", json={"sweep_param": "cpr", "n_steps": 4})
+    assert r_tp.status_code == 200
+    assert len(r_tp.json()["points"]) == 4
+
+    # 3. Widened throttle position down to 0.20
+    r_tj = client.post("/api/turbojet/single", json={"throttle_pos": 0.20, "alt": 10000.0, "M_i": 0.30})
+    assert r_tj.status_code == 200
+    assert r_tj.json()["converged"] is True
 

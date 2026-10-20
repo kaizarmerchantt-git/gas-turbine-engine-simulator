@@ -210,3 +210,47 @@ def test_off_design_endpoints():
     assert r_csv.status_code == 200
     assert "text/csv" in r_csv.headers["content-type"]
     assert "Thrust_kN" in r_csv.text
+
+
+def test_off_design_od01_beta_floats():
+    """
+    Verification for OD-01 fix:
+    Ensure that beta is NOT pinned at 0.50 when flight condition changes.
+    Sizing is locked to design point (35000 ft, M 0.8), and off-design excursions float beta.
+    """
+    # 1. Design condition (N=1.0, 35000 ft, M 0.8) -> beta ~ 0.50
+    res_des = solve_off_design(
+        N_rel=1.0, alt=35000.0, mach=0.8,
+        des_alt=35000.0, des_mach=0.8,
+    )
+    assert abs(res_des["beta"] - 0.50) < 0.05, f"Design beta should be near 0.50, got {res_des['beta']}"
+
+    # 2. Off-design condition: Descent to 28,000 ft, Mach 0.70
+    # Hardware A8 is preserved from design point
+    res_od = solve_off_design(
+        N_rel=1.0, alt=28000.0, mach=0.70,
+        des_alt=35000.0, des_mach=0.80,
+        A8=res_des["A8_target"],
+    )
+    # Beta MUST float away from 0.50 to match throat continuity at higher ambient pressure
+    assert abs(res_od["beta"] - 0.50) > 0.01, f"OD-01 regression: beta stayed pinned at {res_od['beta']}"
+    assert res_od["converged"] is True
+    assert res_od["A8_match_err_pct"] < 0.5
+
+
+def test_two_throat_matching_choked_capacity():
+    """Verify HPT choked NGV throat area A4* and exhaust nozzle area A8* are locked and consistent."""
+    res = solve_off_design(N_rel=1.0, alt=35000.0, mach=0.8)
+    assert "A4_star_m2" in res
+    assert res["A4_star_m2"] > 0.0
+    assert "A8_target" in res
+    assert res["A8_target"] > 0.0
+    assert res["A8_match_err_pct"] < 0.1
+
+
+def test_low_speed_idle_with_handling_bleed():
+    """Verify idle operation at N_rel=0.55 converges stably with handling bleed active."""
+    res_idle = solve_off_design(N_rel=0.55, alt=0.0, mach=0.0)
+    assert res_idle["converged"] is True
+    assert res_idle["b_bleed"] > 0.0, "Handling bleed should be active below N_rel=0.70"
+    assert res_idle["Surge_Margin_pct"] > 5.0, "Idle should maintain positive surge margin"
