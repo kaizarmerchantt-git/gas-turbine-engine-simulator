@@ -109,9 +109,16 @@ def calc_thrust(
     converged   = False
     tol         = 0.1     # kg/s
     mdot_iter   = 0
-    max_mdot_iter = 10
+    max_mdot_iter = 35
     conv_error  = False
-    current_mdot = mdot_guess
+    # Aerodynamic inlet throat choking limit for compressor face area A2
+    _gamma_a = 1.4
+    _R_a = 287.05
+    _Tt_inlet = T_amb * (1.0 + 0.5 * (_gamma_a - 1.0) * M_i**2)
+    _Pt_inlet = p_amb * ((1.0 + 0.5 * (_gamma_a - 1.0) * M_i**2) ** (_gamma_a / (_gamma_a - 1.0))) * eng_perf.get("eta_i", 0.98)
+    _q_sonic = math.sqrt(_gamma_a / _R_a) * (2.0 / (_gamma_a + 1.0)) ** ((_gamma_a + 1.0) / (2.0 * (_gamma_a - 1.0)))
+    _mdot_inlet_cap = (_Pt_inlet * eng_param.get("A2", 0.38) / math.sqrt(max(10.0, _Tt_inlet))) * _q_sonic * 0.96
+    current_mdot = min(mdot_guess, _mdot_inlet_cap)
 
     # Combustor state holders (set inside loop, used for TSFC after loop)
     mixt_frac = 0.0
@@ -257,11 +264,11 @@ def calc_thrust(
         )
 
         # ── Mass-flow convergence check ─────────────────────────────────────
-        if abs(mdot_noz - current_mdot) < tol:
+        if abs(mdot_noz - current_mdot) < tol or (current_mdot >= _mdot_inlet_cap - tol and mdot_noz >= _mdot_inlet_cap):
             converged = True
         else:
             mdot_iter   += 1
-            current_mdot = 0.5 * current_mdot + 0.5 * mdot_noz
+            current_mdot = min(_mdot_inlet_cap, 0.5 * current_mdot + 0.5 * mdot_noz)
 
     # ── Post-loop performance metrics ───────────────────────────────────────
     # Bug T1-A fix: FAR = Z/(1-Z), not Z.
@@ -427,7 +434,7 @@ def calc_icao_lto_cycle(
         {"mode": "Takeoff",  "throttle": 1.00, "time_min": 0.7,  "time_s": 42.0},
         {"mode": "Climbout", "throttle": 0.85, "time_min": 2.2,  "time_s": 132.0},
         {"mode": "Approach", "throttle": 0.35, "time_min": 4.0,  "time_s": 240.0},
-        {"mode": "Taxi/Idle","throttle": 0.15, "time_min": 26.0, "time_s": 1560.0},
+        {"mode": "Taxi/Idle","throttle": 0.25, "time_min": 26.0, "time_s": 1560.0},
     ]
 
     mode_results = []
