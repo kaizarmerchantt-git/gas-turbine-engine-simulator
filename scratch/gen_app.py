@@ -14,16 +14,48 @@ APP_MAIN = """
       { id: "hybrid", num: "09", label: "[09 HYBRID]" }
     ];
 
-    function App() {
-      const [activeModule, setActiveModule] = useState("turbojet");
-      const [unitSystem, setUnitSystem] = useState("SI");
+    // Isolated Status Badge component: health polling does not re-render App
+    function HeaderSolverStatus() {
       const [solverOnline, setSolverOnline] = useState(true);
       const [solverLatency, setSolverLatency] = useState(12);
-      const [utcTime, setUtcTime] = useState("");
-      const [liveStations, setLiveStations] = useState(null);
-      const [selectedStation, setSelectedStation] = useState(null);
 
-      // UTC Clock Tick
+      useEffect(() => {
+        let isMounted = true;
+        const checkHealth = async () => {
+          const t0 = performance.now();
+          try {
+            const r = await fetch(`${API}/api/health`);
+            if (!isMounted) return;
+            if (r.ok) {
+              setSolverOnline(true);
+              setSolverLatency(Math.max(1, Math.round(performance.now() - t0)));
+            } else {
+              setSolverOnline(false);
+            }
+          } catch (_) {
+            if (isMounted) setSolverOnline(false);
+          }
+        };
+        checkHealth();
+        const id = setInterval(checkHealth, 15000);
+        return () => {
+          isMounted = false;
+          clearInterval(id);
+        };
+      }, []);
+
+      return (
+        <div className={`solver-status-badge ${solverOnline ? "" : "error"}`}>
+          <span className={`status-dot ${solverOnline ? "" : "error"}`}></span>
+          <span>{solverOnline ? `SOLVER ONLINE: ${solverLatency}ms` : "SOLVER OFFLINE"}</span>
+        </div>
+      );
+    }
+
+    // Isolated UTC Clock: 1 Hz tick strictly confined to this leaf node
+    function HeaderUtcClock() {
+      const [utcTime, setUtcTime] = useState("");
+
       useEffect(() => {
         const updateClock = () => {
           const now = new Date();
@@ -37,26 +69,18 @@ APP_MAIN = """
         return () => clearInterval(id);
       }, []);
 
-      // Health ping to check solver status
-      useEffect(() => {
-        const checkHealth = async () => {
-          const t0 = performance.now();
-          try {
-            const r = await fetch(`${API}/api/health`);
-            if (r.ok) {
-              setSolverOnline(true);
-              setSolverLatency(Math.max(1, Math.round(performance.now() - t0)));
-            } else {
-              setSolverOnline(false);
-            }
-          } catch (_) {
-            setSolverOnline(false);
-          }
-        };
-        checkHealth();
-        const id = setInterval(checkHealth, 15000);
-        return () => clearInterval(id);
-      }, []);
+      return (
+        <div className="utc-clock">
+          {utcTime}
+        </div>
+      );
+    }
+
+    function App() {
+      const [activeModule, setActiveModule] = useState("turbojet");
+      const [unitSystem, setUnitSystem] = useState("SI");
+      const [liveStations, setLiveStations] = useState(null);
+      const [selectedStation, setSelectedStation] = useState(null);
 
       return (
         <UnitContext.Provider value={{ unitSystem, setUnitSystem }}>
@@ -101,7 +125,7 @@ APP_MAIN = """
                 </select>
               </nav>
 
-              {/* Right Telemetry Cluster: Units, Solver Status Badge, UTC Clock */}
+              {/* Right Telemetry Cluster: Units, Isolated Solver Status Badge, Isolated UTC Clock */}
               <div className="header-telemetry-cluster">
                 <div className="unit-toggle-pill">
                   <button
@@ -118,14 +142,8 @@ APP_MAIN = """
                   </button>
                 </div>
 
-                <div className={`solver-status-badge ${solverOnline ? "" : "error"}`}>
-                  <span className={`status-dot ${solverOnline ? "" : "error"}`}></span>
-                  <span>{solverOnline ? `SOLVER ONLINE: ${solverLatency}ms` : "SOLVER OFFLINE"}</span>
-                </div>
-
-                <div className="utc-clock">
-                  {utcTime}
-                </div>
+                <HeaderSolverStatus />
+                <HeaderUtcClock />
               </div>
             </header>
 

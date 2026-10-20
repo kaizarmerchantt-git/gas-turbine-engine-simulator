@@ -28,17 +28,20 @@ COMMON_COMPONENTS = """
       const num = Number(val);
       if (unitSystem === "IMPERIAL") {
         switch (type) {
-          case "thrust": return num * 224.80894; // kN -> lbf
-          case "thrust_N": return num * 0.224809; // N -> lbf
-          case "massflow": return num * 2.20462; // kg/s -> lb/s
-          case "fuelflow": return num * 7936.64; // kg/s -> lb/hr
-          case "fuelflow_kgh": return num * 2.20462; // kg/h -> lb/hr
+          case "thrust": return num * 224.808943; // kN -> lbf
+          case "thrust_N": return num * 0.224808943; // N -> lbf
+          case "mass": return num * 2.20462262; // kg -> lbm
+          case "massflow": return num * 2.20462262; // kg/s -> lb/s
+          case "fuelflow": return num * 7936.6414; // kg/s -> lb/hr
+          case "fuelflow_kgh": return num * 2.20462262; // kg/h -> lb/hr
           case "temp": return num * 1.8; // K -> °R
-          case "pressure": return num * 0.1450377; // kPa -> psia
+          case "pressure": return num * 0.145037738; // kPa -> psia
           case "tsfc": return num * 0.03530394; // g/(kN·s) -> lb/(lbf·hr)
-          case "power": return num * 1.34102; // kW -> shp
+          case "power": return num * 1.341022; // kW -> shp
           case "torque": return num * 0.737562; // N·m -> ft·lbf
-          case "velocity": return num * 1.94384; // m/s -> kts
+          case "velocity": return num * 1.943844; // m/s -> kts
+          case "distance_km": return num * 0.5399568; // km -> NM
+          case "density": return num * 0.06242796; // kg/m³ -> lb/ft³
           case "altitude": return num; // FT is already imperial
           default: return num;
         }
@@ -51,6 +54,7 @@ COMMON_COMPONENTS = """
         switch (type) {
           case "thrust": return "lbf";
           case "thrust_N": return "lbf";
+          case "mass": return "lbm";
           case "massflow": return "lb/s";
           case "fuelflow": return "lb/hr";
           case "fuelflow_kgh": return "lb/hr";
@@ -60,6 +64,8 @@ COMMON_COMPONENTS = """
           case "power": return "shp";
           case "torque": return "ft·lbf";
           case "velocity": return "kts";
+          case "distance_km": return "NM";
+          case "density": return "lb/ft³";
           case "altitude": return "FT";
           default: return "";
         }
@@ -67,6 +73,7 @@ COMMON_COMPONENTS = """
         switch (type) {
           case "thrust": return "kN";
           case "thrust_N": return "N";
+          case "mass": return "kg";
           case "massflow": return "kg/s";
           case "fuelflow": return "kg/s";
           case "fuelflow_kgh": return "kg/h";
@@ -76,14 +83,28 @@ COMMON_COMPONENTS = """
           case "power": return "kW";
           case "torque": return "N·m";
           case "velocity": return "m/s";
+          case "distance_km": return "km";
+          case "density": return "kg/m³";
           case "altitude": return "FT";
           default: return "";
         }
       }
     }
 
-    // ── 60ms Live Debounced Callback Hook ─────────────────────────────────────
-    function useDebouncedCallback(callback, delay = 60) {
+    function formatErrorText(err) {
+      if (!err) return null;
+      if (typeof err === "string") return err;
+      if (err.detail) return typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail);
+      if (err.message) return err.message;
+      try {
+        return JSON.stringify(err);
+      } catch (_) {
+        return String(err);
+      }
+    }
+
+    // ── 80ms Live Debounced Callback Hook ─────────────────────────────────────
+    function useDebouncedCallback(callback, delay = 80) {
       const timer = useRef(null);
       const callbackRef = useRef(callback);
       useEffect(() => {
@@ -98,22 +119,20 @@ COMMON_COMPONENTS = """
       }, [delay]);
     }
 
-    // ── Obsidian Chart.js Hook ────────────────────────────────────────────────
+    // ── Obsidian Chart.js Hook (Strict In-Place Updates, Zero Destroy Flashes) ──
     function useNeonChart(canvasRef, type, data, extraOptions = {}) {
       const chartInstanceRef = useRef(null);
+      const optionsRef = useRef(extraOptions);
+      optionsRef.current = extraOptions;
 
       useEffect(() => {
         if (!canvasRef.current || !data) return;
         const ctx = canvasRef.current.getContext("2d");
 
-        if (chartInstanceRef.current) {
-          chartInstanceRef.current.destroy();
-        }
-
         const defaultOptions = {
           responsive: true,
           maintainAspectRatio: false,
-          animation: { duration: 150 },
+          animation: false, // Strict: no 0-baseline collapse or bouncing
           plugins: {
             legend: {
               display: data.datasets && data.datasets.length > 1,
@@ -149,30 +168,39 @@ COMMON_COMPONENTS = """
           }
         };
 
+        const opts = optionsRef.current || {};
         const mergedOptions = {
           ...defaultOptions,
-          ...extraOptions,
-          plugins: { ...defaultOptions.plugins, ...(extraOptions.plugins || {}) },
+          ...opts,
+          plugins: { ...defaultOptions.plugins, ...(opts.plugins || {}) },
           scales: {
-            x: { ...defaultOptions.scales.x, ...(extraOptions.scales?.x || {}) },
-            y: { ...defaultOptions.scales.y, ...(extraOptions.scales?.y || {}) },
-            ...(extraOptions.scales?.y1 ? { y1: extraOptions.scales.y1 } : {})
+            x: { ...defaultOptions.scales.x, ...(opts.scales?.x || {}) },
+            y: { ...defaultOptions.scales.y, ...(opts.scales?.y || {}) },
+            ...(opts.scales?.y1 ? { y1: opts.scales.y1 } : {})
           }
         };
 
-        chartInstanceRef.current = new Chart(ctx, {
-          type,
-          data,
-          options: mergedOptions
-        });
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.data = data;
+          chartInstanceRef.current.options = mergedOptions;
+          chartInstanceRef.current.update("none");
+        } else {
+          chartInstanceRef.current = new Chart(ctx, {
+            type,
+            data,
+            options: mergedOptions
+          });
+        }
+      }, [canvasRef, type, data]);
 
+      useEffect(() => {
         return () => {
           if (chartInstanceRef.current) {
             chartInstanceRef.current.destroy();
             chartInstanceRef.current = null;
           }
         };
-      }, [data, extraOptions]);
+      }, []);
 
       return chartInstanceRef;
     }

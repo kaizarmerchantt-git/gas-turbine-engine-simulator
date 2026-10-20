@@ -6,6 +6,7 @@ DOMAINS_1_TO_4 = """
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
       const [res, setRes] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         A1: 0.40,
@@ -29,6 +30,7 @@ DOMAINS_1_TO_4 = """
       const setVal = (k, v) => setP(prev => ({ ...prev, [k]: v }));
 
       const solveCycle = useCallback(async (currentP) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -66,34 +68,40 @@ DOMAINS_1_TO_4 = """
             body: JSON.stringify(reqBody)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "Turbojet solver failed");
           }
           const data = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
           setRes(data);
           if (onUpdateStations && data.stations) onUpdateStations(data.stations);
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, [onUpdateStations]);
 
-      const debouncedSolve = useDebouncedCallback(solveCycle, 60);
+      const debouncedSolve = useDebouncedCallback(solveCycle, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
-        solveCycle(p);
-      }, []);
-
-      useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          solveCycle(p);
+          return;
+        }
         debouncedSolve(p);
-      }, [p, debouncedSolve]);
+      }, [p, debouncedSolve, solveCycle]);
 
-      const fn_kN = res?.thrust_net_kN ?? res?.T ?? res?.Fn_kN ?? (res?.thrust_N ? res.thrust_N / 1000.0 : 0);
-      const wf_kgs = res?.mdot_fuel ?? res?.Wf_kgs ?? (res?.fuel_flow_kg_s ?? 0);
-      const tsfc = res?.TSFC_g_kNs ?? res?.TSFC_g_kns ?? res?.tsfc_g_kns ?? res?.TSFC ?? 0;
-      const mdot = res?.mdot_air ?? res?.W_inlet ?? res?.mdot ?? 0;
-      const eta_th = res?.eta_th ?? 0.38;
+      const fn_kN = res?.thrust_net_kN ?? res?.T ?? res?.Fn_kN ?? (res?.thrust_N ? res.thrust_N / 1000.0 : null);
+      const wf_kgs = res?.mdot_fuel ?? res?.Wf_kgs ?? res?.fuel_flow_kg_s ?? null;
+      const tsfc = res?.TSFC_g_kNs ?? res?.TSFC_g_kns ?? res?.tsfc_g_kns ?? res?.TSFC ?? null;
+      const mdot = res?.mdot_air ?? res?.W_inlet ?? res?.mdot ?? null;
+      const eta_th = res?.eta_th ?? null;
 
       return (
         <div className="app-workspace">
@@ -124,17 +132,17 @@ DOMAINS_1_TO_4 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SOLVER ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top KPI Ribbon (All Numbers Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={fn_kN} unitType="thrust" sub="Cantera Expansion" />
-              <HudKpi label="FUEL MASS FLOW" value={wf_kgs} unitType="fuelflow" decimals={4} sub="Stoich Equilibrium" />
-              <HudKpi label="SPECIFIC FUEL CONS (TSFC)" value={tsfc} unitType="tsfc" decimals={2} sub="Metric Cycle Spec" />
-              <HudKpi label="AIR MASS FLOW" value={mdot} unitType="massflow" decimals={1} sub="Inlet Capture Face" />
-              <HudKpi label="THERMAL EFFICIENCY" value={fmtPct(eta_th)} sub="Brayton Recovery" />
+              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="Cantera Expansion" />
+              <HudKpi label="FUEL MASS FLOW" value={wf_kgs != null ? wf_kgs : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow" decimals={4} sub="Stoich Equilibrium" />
+              <HudKpi label="SPECIFIC FUEL CONS (TSFC)" value={tsfc != null ? tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="Metric Cycle Spec" />
+              <HudKpi label="AIR MASS FLOW" value={mdot != null ? mdot : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Inlet Capture Face" />
+              <HudKpi label="THERMAL EFFICIENCY" value={eta_th != null ? fmtPct(eta_th) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Brayton Recovery" />
               <HudKpi label="COMPRESSOR CPR" value={fmt(p.CPR, 1)} sub="Total-to-Total" />
             </div>
 
@@ -182,6 +190,7 @@ DOMAINS_1_TO_4 = """
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
       const [res, setRes] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         BPR: 5.0,
@@ -208,6 +217,7 @@ DOMAINS_1_TO_4 = """
       const setVal = (k, v) => setP(prev => ({ ...prev, [k]: v }));
 
       const solveTurbofan = useCallback(async (currentP) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -253,34 +263,40 @@ DOMAINS_1_TO_4 = """
             body: JSON.stringify(reqBody)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "Physics turbofan solver failed");
           }
           const data = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
           setRes(data);
           if (onUpdateStations && data.stations) onUpdateStations(data.stations);
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, [onUpdateStations]);
 
-      const debouncedSolve = useDebouncedCallback(solveTurbofan, 60);
+      const debouncedSolve = useDebouncedCallback(solveTurbofan, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
-        solveTurbofan(p);
-      }, []);
-
-      useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          solveTurbofan(p);
+          return;
+        }
         debouncedSolve(p);
-      }, [p, debouncedSolve]);
+      }, [p, debouncedSolve, solveTurbofan]);
 
-      const fn_kN = (res?.thrust_net_kN && res.thrust_net_kN > 0.1) ? res.thrust_net_kN : (res?.T && res.T > 0.1 ? res.T : 26.71);
-      const bpr = (res?.BPR && res.BPR > 0.1) ? res.BPR : p.BPR;
-      const tsfc = (res?.TSFC_g_kNs && res.TSFC_g_kNs > 0.1) ? res.TSFC_g_kNs : (res?.TSFC && res.TSFC > 0.1 ? res.TSFC : 12.2);
-      const mdot_total = res?.mdot_air ?? (res?.mdot_core && res?.mdot_byp ? res.mdot_core + res.mdot_byp : 160.0);
-      const mdot_core = res?.mdot_core ?? 24.6;
+      const fn_kN = res?.thrust_net_kN ?? res?.T ?? null;
+      const bpr = res?.BPR ?? p.BPR;
+      const tsfc = res?.TSFC_g_kNs ?? res?.TSFC ?? null;
+      const mdot_total = res?.mdot_air ?? (res?.mdot_core && res?.mdot_byp ? res.mdot_core + res.mdot_byp : null);
+      const mdot_core = res?.mdot_core ?? null;
       const opr = (p.FPR * p.CPR_hpc).toFixed(1);
 
       return (
@@ -311,17 +327,17 @@ DOMAINS_1_TO_4 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SOLVER ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top KPI Ribbon (All Numbers Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={fn_kN} unitType="thrust" sub="Core + Fan Thrust" />
+              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="Core + Fan Thrust" />
               <HudKpi label="BYPASS RATIO (BPR)" value={fmt(bpr, 2)} sub="Secondary Mass Split" />
-              <HudKpi label="TSFC (METRIC)" value={tsfc} unitType="tsfc" decimals={2} sub="Specific Fuel Cons." />
-              <HudKpi label="TOTAL AIRFLOW" value={mdot_total} unitType="massflow" decimals={1} sub="Fan Face Capture" />
-              <HudKpi label="CORE AIRFLOW" value={mdot_core} unitType="massflow" decimals={1} sub="HPC Inflow Mass" />
+              <HudKpi label="TSFC (METRIC)" value={tsfc != null ? tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="Specific Fuel Cons." />
+              <HudKpi label="TOTAL AIRFLOW" value={mdot_total != null ? mdot_total : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Fan Face Capture" />
+              <HudKpi label="CORE AIRFLOW" value={mdot_core != null ? mdot_core : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="HPC Inflow Mass" />
               <HudKpi label="OVERALL PR (OPR)" value={opr} sub="FPR × HPC PR" />
             </div>
 
@@ -371,6 +387,7 @@ DOMAINS_1_TO_4 = """
       const [res, setRes] = useState(null);
       const [altPts, setAltPts] = useState([]);
       const [machPts, setMachPts] = useState([]);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         alt: 35000.0,
@@ -381,6 +398,7 @@ DOMAINS_1_TO_4 = """
       const setVal = (k, v) => setP(prev => ({ ...prev, [k]: v }));
 
       const solveDeck = useCallback(async (currentP) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -391,10 +409,11 @@ DOMAINS_1_TO_4 = """
             body: JSON.stringify(currentP)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "CF34 deck interpolation failed");
           }
           const data = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
           setRes(data);
           if (onUpdateStations && data.stations) onUpdateStations(data.stations);
 
@@ -403,29 +422,35 @@ DOMAINS_1_TO_4 = """
             fetch(`${API}/api/cf34/sweep_altitude?MN=${currentP.MN}&PC=${currentP.PC}&n_points=25`),
             fetch(`${API}/api/cf34/sweep_mach?alt=${currentP.alt}&PC=${currentP.PC}&n_points=25`)
           ]);
+          if (reqId !== reqSeqRef.current) return;
           if (aRes.ok) setAltPts((await aRes.json()).points || []);
           if (mRes.ok) setMachPts((await mRes.json()).points || []);
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, [onUpdateStations]);
 
-      const debouncedSolve = useDebouncedCallback(solveDeck, 60);
+      const debouncedSolve = useDebouncedCallback(solveDeck, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
-        solveDeck(p);
-      }, []);
-
-      useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          solveDeck(p);
+          return;
+        }
         debouncedSolve(p);
-      }, [p, debouncedSolve]);
+      }, [p, debouncedSolve, solveDeck]);
 
-      const fn_kN = res?.Fn_kN ?? 24.2;
-      const wf_kgh = res ? (res.Wf_kgh ?? (res.Wf_kgs ? res.Wf_kgs * 3600 : 1636.7)) : 1636.7;
-      const tsfc = (fn_kN > 0 && wf_kgh > 0) ? ((wf_kgh / 3.6) / fn_kN) : (res?.TSFC ?? 18.77);
-      const wc_kgs = res?.Wc_kgs ?? 142.5;
+      const fn_kN = res?.Fn_kN ?? null;
+      const wf_kgh = res ? (res.Wf_kgh ?? (res.Wf_kgs ? res.Wf_kgs * 3600 : null)) : null;
+      const tsfc = (fn_kN && wf_kgh) ? ((wf_kgh / 3.6) / fn_kN) : (res?.TSFC ?? null);
+      const wc_kgs = res?.Wc_kgs ?? null;
 
       const altRef = useRef(null);
       const machRef = useRef(null);
@@ -520,16 +545,16 @@ DOMAINS_1_TO_4 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] DECK INTERPOLATION ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top 4 KPI Cards (Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={fn_kN} unitType="thrust" sub="CF34-10E Calibrated" />
-              <HudKpi label="FUEL FLOW (Wf)" value={wf_kgh} unitType="fuelflow_kgh" decimals={1} sub="Empirical Rate" />
-              <HudKpi label="TSFC (SPECIFIC FUEL CONS)" value={tsfc} unitType="tsfc" decimals={2} sub="g/(kN·s)" />
-              <HudKpi label="CORRECTED AIRFLOW (Wc)" value={wc_kgs} unitType="massflow" decimals={1} sub="Fan Face" />
+              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="CF34-10E Calibrated" />
+              <HudKpi label="FUEL FLOW (Wf)" value={wf_kgh != null ? wf_kgh : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow_kgh" decimals={1} sub="Empirical Rate" />
+              <HudKpi label="TSFC (SPECIFIC FUEL CONS)" value={tsfc != null ? tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="g/(kN·s)" />
+              <HudKpi label="CORRECTED AIRFLOW (Wc)" value={wc_kgs != null ? wc_kgs : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Fan Face" />
             </div>
 
             {/* Middle: 2 Sweep Charts */}
@@ -591,6 +616,7 @@ DOMAINS_1_TO_4 = """
       const [error, setError] = useState(null);
       const [result, setResult] = useState(null);
       const [mapData, setMapData] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         N_rel: 1.0,
@@ -612,6 +638,7 @@ DOMAINS_1_TO_4 = """
       const setVal = (k, v) => setP(prev => ({ ...prev, [k]: v }));
 
       const solveOffDesign = useCallback(async (currentP) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -624,36 +651,42 @@ DOMAINS_1_TO_4 = """
             })
           ]);
 
+          if (reqId !== reqSeqRef.current) return;
           if (mapRes.ok) setMapData(await mapRes.json());
           if (!singleRes.ok) {
-            const err = await singleRes.json();
+            const err = await singleRes.json().catch(() => ({ detail: singleRes.statusText }));
             throw new Error(err.detail || "Off-design component matching failed");
           }
           setResult(await singleRes.json());
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, []);
 
-      const debouncedSolve = useDebouncedCallback(solveOffDesign, 60);
+      const debouncedSolve = useDebouncedCallback(solveOffDesign, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
-        solveOffDesign(p);
-      }, []);
-
-      useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          solveOffDesign(p);
+          return;
+        }
         debouncedSolve(p);
-      }, [p, debouncedSolve]);
+      }, [p, debouncedSolve, solveOffDesign]);
 
-      const sm = result?.Surge_Margin_pct ?? result?.surge_margin_pct ?? 20.0;
-      const opCPR = result?.CPR ?? result?.cpr ?? p.cpr_des;
-      const opMdot = result?.mdot_corr ?? p.mdot_corr_des;
-      const opEta = result?.eta_c ?? p.eta_c_des;
-      const opTIT = result?.TIT ?? result?.T04 ?? result?.TIT_K ?? p.T_max;
-      const opThrust = result?.Thrust_kN ?? (result?.thrust_N ? result.thrust_N / 1000 : (result?.Fn_kN || 24.5));
-      const opA8 = result?.A8_target ?? result?.A8 ?? 0.0785;
+      const sm = result?.Surge_Margin_pct ?? result?.surge_margin_pct ?? null;
+      const opCPR = result?.CPR ?? result?.cpr ?? null;
+      const opMdot = result?.mdot_corr ?? null;
+      const opEta = result?.eta_c ?? null;
+      const opTIT = result?.TIT ?? result?.T04 ?? result?.TIT_K ?? null;
+      const opThrust = result?.Thrust_kN ?? (result?.thrust_N ? result.thrust_N / 1000 : result?.Fn_kN ?? null);
+      const opA8 = result?.A8_target ?? result?.A8 ?? null;
 
       const mapCanvasRef = useRef(null);
 
@@ -760,25 +793,25 @@ DOMAINS_1_TO_4 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SOLVER ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top 5 KPI Cards (Restored 5th: Nozzle Area A8) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST" value={opThrust} unitType="thrust" sub="Off-Design Output" />
-              <HudKpi label="OPERATING CPR" value={fmt(opCPR, 2)} sub={`Target: ${fmt(p.cpr_des, 1)}`} />
-              <HudKpi label="CORRECTED FLOW" value={opMdot} unitType="massflow" decimals={1} sub={`Design: ${fmt(p.mdot_corr_des, 1)}`} />
+              <HudKpi label="NET THRUST" value={opThrust != null ? opThrust : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="Off-Design Output" />
+              <HudKpi label="OPERATING CPR" value={opCPR != null ? fmt(opCPR, 2) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub={`Target: ${fmt(p.cpr_des, 1)}`} />
+              <HudKpi label="CORRECTED FLOW" value={opMdot != null ? opMdot : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub={`Design: ${fmt(p.mdot_corr_des, 1)}`} />
               <HudKpi 
                 label="SURGE MARGIN" 
-                value={fmt(sm, 1)} 
-                unit="%" 
-                subTag={{
+                value={sm != null ? fmt(sm, 1) : (loading ? "COMPUTING..." : "NOT COMPUTED")} 
+                unit={sm != null ? "%" : ""} 
+                subTag={sm != null ? {
                   type: sm >= 15 ? "optimal" : (sm >= 8 ? "warning" : "critical"),
                   label: sm >= 15 ? "HEALTHY" : (sm >= 8 ? "LOW MARGIN" : "SURGE RISK")
-                }}
+                } : null}
               />
-              <HudKpi label="NOZZLE AREA (A8)" value={fmt(opA8, 4)} unit="m²" sub={result?.A4_star_m2 ? `A4* NGV: ${fmt(result.A4_star_m2, 4)} m²` : "Locked Hardware"} />
+              <HudKpi label="NOZZLE AREA (A8)" value={opA8 != null ? fmt(opA8, 4) : (loading ? "COMPUTING..." : "NOT COMPUTED")} unit={opA8 != null ? "m²" : ""} sub={result?.A4_star_m2 ? `A4* NGV: ${fmt(result.A4_star_m2, 4)} m²` : "Locked Hardware"} />
             </div>
 
             {/* Middle: Compressor Map */}

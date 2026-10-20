@@ -183,6 +183,7 @@ DOMAINS_5_TO_9 = """
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
       const [result, setResult] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [compParams, setCompParams] = useState({
         U: 350.0,
@@ -229,6 +230,7 @@ DOMAINS_5_TO_9 = """
       const setTurb = (k, v) => setTurbParams(prev => ({ ...prev, [k]: v }));
 
       const solveStage = useCallback(async () => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -249,27 +251,33 @@ DOMAINS_5_TO_9 = """
             body: JSON.stringify(body)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "Aero stage solver failed");
           }
           const data = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
           setResult(data);
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, [mode, compParams, multiParams, turbParams]);
 
-      const debouncedSolve = useDebouncedCallback(solveStage, 60);
+      const debouncedSolve = useDebouncedCallback(solveStage, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
-        solveStage();
-      }, [mode]);
-
-      useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          solveStage();
+          return;
+        }
         debouncedSolve();
-      }, [compParams, multiParams, turbParams, debouncedSolve]);
+      }, [mode, compParams, multiParams, turbParams, debouncedSolve, solveStage]);
 
       // Extract active velocity triangles safely
       let inletTri = null;
@@ -351,22 +359,22 @@ DOMAINS_5_TO_9 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] AERO SOLVER ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top 6 KPI Cards (Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="STAGE LOADING (ψ)" value={fmt(activeStg?.loading_coefficient_psi ?? activeStg?.psi, 3)} sub="Δh₀ / U²" />
-              <HudKpi label="FLOW COEFFICIENT (ϕ)" value={fmt(activeStg?.flow_coefficient_phi ?? activeStg?.phi, 3)} sub="Ca / U" />
-              <HudKpi label="DEGREE OF REACTION (R)" value={fmt(activeStg?.degree_of_reaction_R ?? activeStg?.reaction, 3)} sub="Rotor Enthalpy Rise" />
+              <HudKpi label="STAGE LOADING (ψ)" value={activeStg?.loading_coefficient_psi != null || activeStg?.psi != null ? fmt(activeStg.loading_coefficient_psi ?? activeStg.psi, 3) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Δh₀ / U²" />
+              <HudKpi label="FLOW COEFFICIENT (ϕ)" value={activeStg?.flow_coefficient_phi != null || activeStg?.phi != null ? fmt(activeStg.flow_coefficient_phi ?? activeStg.phi, 3) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Ca / U" />
+              <HudKpi label="DEGREE OF REACTION (R)" value={activeStg?.degree_of_reaction_R != null || activeStg?.reaction != null ? fmt(activeStg.degree_of_reaction_R ?? activeStg.reaction, 3) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Rotor Enthalpy Rise" />
               {mode === "turbine" ? (
-                <HudKpi label="ZWEIFEL COEFF (ψ_z)" value={fmt(result?.zweifel_coefficient ?? result?.zweifel_coefficient_stator, 2)} sub="Aerodynamic Loading" />
+                <HudKpi label="ZWEIFEL COEFF (ψ_z)" value={result?.zweifel_coefficient != null || result?.zweifel_coefficient_stator != null ? fmt(result.zweifel_coefficient ?? result.zweifel_coefficient_stator, 2) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Aerodynamic Loading" />
               ) : (
-                <HudKpi label="DE HALLER RATIO" value={fmt(activeStg?.de_haller_ratio || (inletTri && exitTri ? exitTri.W / inletTri.W : 0.76), 3)} sub="W₂ / W₁ ≥ 0.72" />
+                <HudKpi label="DE HALLER RATIO" value={activeStg?.de_haller_ratio != null || (inletTri && exitTri && inletTri.W) ? fmt(activeStg?.de_haller_ratio || (inletTri && exitTri ? exitTri.W / inletTri.W : 0.76), 3) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="W₂ / W₁ ≥ 0.72" />
               )}
-              <HudKpi label="STAGE PR" value={fmt(activeStg?.stage_PR ?? activeStg?.PR_stage, 3)} sub="Isentropic Work" />
-              <HudKpi label="STAGE WORK (Δh₀)" value={fmt(activeStg?.delta_h0_kJkg ?? (activeStg?.delta_h0 ? activeStg.delta_h0 / 1000 : 0), 1)} unit="kJ/kg" sub="Euler Equation" />
+              <HudKpi label="STAGE PR" value={activeStg?.stage_PR != null || activeStg?.PR_stage != null ? fmt(activeStg.stage_PR ?? activeStg.PR_stage, 3) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Isentropic Work" />
+              <HudKpi label="STAGE WORK (Δh₀)" value={activeStg?.delta_h0_kJkg != null || activeStg?.delta_h0 != null ? fmt(activeStg.delta_h0_kJkg ?? (activeStg.delta_h0 / 1000), 1) : (loading ? "COMPUTING..." : "NOT COMPUTED")} unit="kJ/kg" sub="Euler Equation" />
             </div>
 
             {/* Velocity Triangles SVG */}
@@ -515,6 +523,7 @@ DOMAINS_5_TO_9 = """
       const [mode, setMode] = useState("single"); // "single" or "sweep"
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         alt: 15000.0,
@@ -553,6 +562,7 @@ DOMAINS_5_TO_9 = """
       const setParam = (k, v) => setP(prev => ({ ...prev, [k]: v }));
 
       const runSingle = useCallback(async (currentP) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -562,20 +572,25 @@ DOMAINS_5_TO_9 = """
             body: JSON.stringify(currentP)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "Turboprop calculation failed");
           }
           const data = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
           setRes(data);
           if (onUpdateStations && data.stations) onUpdateStations(data.stations);
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, [onUpdateStations]);
 
       const runSweep = useCallback(async (currentSw) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -585,29 +600,36 @@ DOMAINS_5_TO_9 = """
             body: JSON.stringify(currentSw)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "Turboprop sweep failed");
           }
-          setSweepRes(await resp.json());
+          const data = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
+          setSweepRes(data);
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, []);
 
-      const debouncedSingle = useDebouncedCallback(runSingle, 60);
-      const debouncedSweep = useDebouncedCallback(runSweep, 60);
+      const debouncedSingle = useDebouncedCallback(runSingle, 80);
+      const debouncedSweep = useDebouncedCallback(runSweep, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
-        if (mode === "single") runSingle(p);
-        else runSweep(sw);
-      }, [mode]);
-
-      useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          if (mode === "single") runSingle(p);
+          else runSweep(sw);
+          return;
+        }
         if (mode === "single") debouncedSingle(p);
         else debouncedSweep(sw);
-      }, [p, sw, debouncedSingle, debouncedSweep]);
+      }, [mode, p, sw, debouncedSingle, debouncedSweep, runSingle, runSweep]);
 
       return (
         <div className="app-workspace">
@@ -663,18 +685,18 @@ DOMAINS_5_TO_9 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] TURBOPROP ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top 6 KPI Cards (Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="SHAFT POWER" value={res ? fmt(res.P_shaft_shp || res.SHP, 0) : "---"} unit="shp" sub={`${res ? fmt(res.P_shaft_kW, 0) : "---"} kW`} />
-              <HudKpi label="EQUIV SHAFT PWR" value={res ? fmt(res.ESHP, 0) : "---"} unit="eshp" sub="Shaft + Jet Residual" />
-              <HudKpi label="TOTAL THRUST" value={res ? fmt(res.F_total_kN, 2) : "---"} unit="kN" sub={`Prop: ${res ? fmt(res.F_prop_kN, 1) : "---"} kN`} />
-              <HudKpi label="PROP EFFICIENCY" value={res ? fmtPct(res.eta_prop || res.propeller_efficiency) : "---"} sub="Hamilton Standard" />
-              <HudKpi label="PSFC" value={res ? fmt(res.PSFC_kg_kWh, 3) : "---"} unit="kg/kW·h" sub={`${res ? fmt(res.PSFC_lbm_shph, 3) : "---"} lbm/shp·h`} />
-              <HudKpi label="GEARBOX TORQUE" value={res ? fmtInt(res.torque_Nm) : "---"} unit="N·m" sub="Planetary Reduction" />
+              <HudKpi label="SHAFT POWER" value={res?.P_shaft_kW != null ? res.P_shaft_kW : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="power" sub={`${res?.P_shaft_shp != null ? fmt(res.P_shaft_shp, 0) : "---"} shp`} />
+              <HudKpi label="EQUIV SHAFT PWR" value={res?.ESHP != null ? fmt(res.ESHP, 0) : (loading ? "COMPUTING..." : "NOT COMPUTED")} unit="eshp" sub="Shaft + Jet Residual" />
+              <HudKpi label="TOTAL THRUST" value={res?.F_total_kN != null ? res.F_total_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub={`Prop: ${res ? fmt(res.F_prop_kN, 1) : "---"} kN`} />
+              <HudKpi label="PROP EFFICIENCY" value={res?.eta_prop != null || res?.propeller_efficiency != null ? fmtPct(res.eta_prop || res.propeller_efficiency) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Hamilton Standard" />
+              <HudKpi label="PSFC" value={res?.PSFC_kg_kWh != null ? fmt(res.PSFC_kg_kWh, 3) : (loading ? "COMPUTING..." : "NOT COMPUTED")} unit="kg/kW·h" sub={`${res?.PSFC_lbm_shph != null ? fmt(res.PSFC_lbm_shph, 3) : "---"} lbm/shp·h`} />
+              <HudKpi label="GEARBOX TORQUE" value={res?.torque_Nm != null ? res.torque_Nm : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="torque" sub="Planetary Reduction" />
             </div>
 
             {/* Restored Propeller Dynamics Sub-Ribbon */}
@@ -748,7 +770,7 @@ DOMAINS_5_TO_9 = """
         labels,
         datasets: [{
           label: "ALTITUDE PROFILE [FT]",
-          data: pts.map(p => p.alt_ft || 0),
+          data: pts.map(p => p.altitude_ft ?? p.alt_ft ?? 0),
           borderColor: "#38BDF8",
           backgroundColor: "rgba(56, 189, 248, 0.08)",
           fill: true,
@@ -852,6 +874,7 @@ DOMAINS_5_TO_9 = """
       const [error, setError] = useState(null);
       const [res, setRes] = useState(null);
       const [trends, setTrends] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         aircraft_type: "generic_twin",
@@ -866,6 +889,7 @@ DOMAINS_5_TO_9 = """
       const setVal = (k, v) => setP(prev => ({ ...prev, [k]: v }));
 
       const runMission = useCallback(async (currentP) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -875,10 +899,11 @@ DOMAINS_5_TO_9 = """
             body: JSON.stringify(currentP)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "Flight mission simulation failed");
           }
           const data = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
           setRes(data);
 
           // Fetch continuous polar airspeed trends
@@ -896,20 +921,30 @@ DOMAINS_5_TO_9 = """
                 n_points: 35
               })
             });
+            if (reqId !== reqSeqRef.current) return;
             if (tResp.ok) setTrends(await tResp.json());
           } catch (_) {}
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, []);
 
-      const debouncedSolve = useDebouncedCallback(runMission, 60);
+      const debouncedSolve = useDebouncedCallback(runMission, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          runMission(p);
+          return;
+        }
         debouncedSolve(p);
-      }, [p, debouncedSolve]);
+      }, [p, debouncedSolve, runMission]);
 
       const summary = res?.mission_summary || res?.summary || {};
       const phases = res?.flight_profile || res?.phases || [];
@@ -1025,18 +1060,18 @@ DOMAINS_5_TO_9 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] MISSION ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top 6 KPI Cards (Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="BLOCK FUEL BURN" value={summary.block_fuel_kg ? fmt(summary.block_fuel_kg, isUav ? 1 : 0) : "---"} unit="kg" sub="Gate-to-Gate" />
-              <HudKpi label="FLIGHT TIME" value={summary.total_flight_time_hr ? fmt(summary.total_flight_time_hr, 2) : "---"} unit="hrs" sub={`${summary.total_flight_time_min ? fmtInt(summary.total_flight_time_min) : "---"} min`} />
-              <HudKpi label="CRUISE L/D" value={summary.cruise_L_over_D ? fmt(summary.cruise_L_over_D, 2) : "---"} sub="Aero Efficiency" />
-              <HudKpi label="BREGUET RANGE" value={summary.breguet_cruise_range_nm ? fmtInt(summary.breguet_cruise_range_nm) : "---"} unit="nm" sub={`${summary.breguet_cruise_range_km ? fmtInt(summary.breguet_cruise_range_km) : "---"} km`} />
-              <HudKpi label="AVERAGE TSFC" value={summary.average_cruise_TSFC ? fmt(summary.average_cruise_TSFC, 2) : "---"} unit="g/kN·s" sub="Cruise Phase" />
-              <HudKpi label="TAKEOFF WEIGHT" value={summary.takeoff_weight_kg ? fmt(summary.takeoff_weight_kg, isUav ? 1 : 0) : "---"} unit="kg" sub={`Landing: ${summary.landing_weight_kg ? fmt(summary.landing_weight_kg, isUav ? 1 : 0) : "---"} kg`} />
+              <HudKpi label="BLOCK FUEL BURN" value={summary.block_fuel_kg != null ? summary.block_fuel_kg : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="mass" decimals={isUav ? 1 : 0} sub="Gate-to-Gate" />
+              <HudKpi label="FLIGHT TIME" value={summary.total_flight_time_hr != null ? fmt(summary.total_flight_time_hr, 2) : (loading ? "COMPUTING..." : "NOT COMPUTED")} unit="hrs" sub={`${summary.total_flight_time_min != null ? fmtInt(summary.total_flight_time_min) : "---"} min`} />
+              <HudKpi label="CRUISE L/D" value={summary.cruise_L_over_D != null ? fmt(summary.cruise_L_over_D, 2) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Aero Efficiency" />
+              <HudKpi label="BREGUET RANGE" value={summary.breguet_cruise_range_km != null ? summary.breguet_cruise_range_km : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="distance_km" decimals={0} sub={`${summary.breguet_cruise_range_nm != null ? fmtInt(summary.breguet_cruise_range_nm) : "---"} NM`} />
+              <HudKpi label="AVERAGE TSFC" value={summary.average_cruise_TSFC != null ? summary.average_cruise_TSFC : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="Cruise Phase" />
+              <HudKpi label="TAKEOFF WEIGHT" value={summary.takeoff_weight_kg != null ? summary.takeoff_weight_kg : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="mass" decimals={isUav ? 1 : 0} sub={`Landing: ${summary.landing_weight_kg != null ? fmt(summary.landing_weight_kg, isUav ? 1 : 0) : "---"} kg`} />
             </div>
 
             {/* Restored Panel 1: Conceptual Sizing */}
@@ -1252,6 +1287,7 @@ DOMAINS_5_TO_9 = """
       const [error, setError] = useState(null);
       const [pred, setPred] = useState(null);
       const [surface, setSurface] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         alt_ft: 35000.0,
@@ -1269,6 +1305,7 @@ DOMAINS_5_TO_9 = """
       const setVal = (k, v) => setP(prev => ({ ...prev, [k]: v }));
 
       const runPredict = useCallback(async (currentP, currentSurf) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -1278,10 +1315,12 @@ DOMAINS_5_TO_9 = """
             body: JSON.stringify(currentP)
           });
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
             throw new Error(err.detail || "Surrogate prediction failed");
           }
-          setPred(await resp.json());
+          const predData = await resp.json();
+          if (reqId !== reqSeqRef.current) return;
+          setPred(predData);
 
           // Fetch 2D slice response surface
           const sResp = await fetch(`${API}/api/surrogate/surface`, {
@@ -1297,19 +1336,29 @@ DOMAINS_5_TO_9 = """
               fixed_tit: currentP.TIT_K
             })
           });
+          if (reqId !== reqSeqRef.current) return;
           if (sResp.ok) setSurface(await sResp.json());
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, []);
 
-      const debouncedPredict = useDebouncedCallback(runPredict, 60);
+      const debouncedPredict = useDebouncedCallback(runPredict, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          runPredict(p, surfParams);
+          return;
+        }
         debouncedPredict(p, surfParams);
-      }, [p, surfParams, debouncedPredict]);
+      }, [p, surfParams, debouncedPredict, runPredict]);
 
       return (
         <div className="app-workspace">
@@ -1335,17 +1384,17 @@ DOMAINS_5_TO_9 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] SURROGATE ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
             {/* Top 5 KPI Cards (Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="PREDICTED THRUST" value={pred ? fmt(pred.thrust_kN, 2) : "---"} unit="kN" sub="Augmented Gaussian RBF" />
-              <HudKpi label="PREDICTED TSFC" value={pred ? fmt(pred.tsfc, 2) : "---"} unit="g/kN·s" sub={pred && pred.uncertainty_pct != null ? `± ${fmt(pred.uncertainty_pct, 1)}% (95% CI)` : "Specific Fuel Cons."} />
-              <HudKpi label="AIR MASS FLOW" value={pred ? fmt(pred.air_flow_kg_s, 1) : "---"} unit="kg/s" sub="Engine Inlet Flow" />
-              <HudKpi label="FUEL MASS FLOW" value={pred ? fmt(pred.fuel_flow_kg_s, 4) : "---"} unit="kg/s" sub="Combustor Fuel" />
-              <HudKpi label="SOLVE LATENCY" value={pred && pred.latency_ms ? fmt(pred.latency_ms, 3) : "< 0.25"} unit="ms" sub={pred && pred.loocv_r2 ? `LOOCV R²: ${fmt(pred.loocv_r2, 4)}` : "High Fidelity RBF"} />
+              <HudKpi label="PREDICTED THRUST" value={pred?.thrust_kN != null ? pred.thrust_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="Augmented Gaussian RBF" />
+              <HudKpi label="PREDICTED TSFC" value={pred?.tsfc != null ? pred.tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub={pred && pred.uncertainty_pct != null ? `± ${fmt(pred.uncertainty_pct, 1)}% (95% CI)` : "Specific Fuel Cons."} />
+              <HudKpi label="AIR MASS FLOW" value={pred?.air_flow_kg_s != null ? pred.air_flow_kg_s : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Engine Inlet Flow" />
+              <HudKpi label="FUEL MASS FLOW" value={pred?.fuel_flow_kg_s != null ? pred.fuel_flow_kg_s : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow" decimals={4} sub="Combustor Fuel" />
+              <HudKpi label="SOLVE LATENCY" value={pred && pred.latency_ms != null ? fmt(pred.latency_ms, 3) : (loading ? "COMPUTING..." : "< 0.25")} unit="ms" sub={pred && pred.loocv_r2 ? `LOOCV R²: ${fmt(pred.loocv_r2, 4)}` : "High Fidelity RBF"} />
             </div>
 
             {/* 2D Slice Response Surface Chart with Working Selectors */}
@@ -1603,6 +1652,7 @@ DOMAINS_5_TO_9 = """
       const [res, setRes] = useState(null);
       const [missionRes, setMissionRes] = useState(null);
       const [tradeRes, setTradeRes] = useState(null);
+      const reqSeqRef = useRef(0);
 
       const [p, setP] = useState({
         architecture: "parallel",
@@ -1627,6 +1677,7 @@ DOMAINS_5_TO_9 = """
       const setMVal = (k, v) => setMParam(prev => ({ ...prev, [k]: v }));
 
       const runHybrid = useCallback(async (currentP, currentM, currentMode) => {
+        const reqId = ++reqSeqRef.current;
         setLoading(true);
         setError(null);
         try {
@@ -1637,10 +1688,12 @@ DOMAINS_5_TO_9 = """
               body: JSON.stringify(currentP)
             });
             if (!resp.ok) {
-              const err = await resp.json();
+              const err = await resp.json().catch(() => ({ detail: resp.statusText }));
               throw new Error(err.detail || "Hybrid calculation failed");
             }
-            setRes(await resp.json());
+            const data = await resp.json();
+            if (reqId !== reqSeqRef.current) return;
+            setRes(data);
 
             // Fetch trade study sweep
             const tResp = await fetch(`${API}/api/hybrid/sweep`, {
@@ -1654,6 +1707,7 @@ DOMAINS_5_TO_9 = """
                 battery_mass_kg: currentP.battery_mass_kg
               })
             });
+            if (reqId !== reqSeqRef.current) return;
             if (tResp.ok) {
               const tData = await tResp.json();
               setTradeRes(tData.points || []);
@@ -1668,30 +1722,42 @@ DOMAINS_5_TO_9 = """
               })
             });
             if (!resp.ok) {
-              const err = await resp.json();
+              const err = await resp.json().catch(() => ({ detail: resp.statusText }));
               throw new Error(err.detail || "Hybrid mission simulation failed");
             }
-            setMissionRes(await resp.json());
+            const data = await resp.json();
+            if (reqId !== reqSeqRef.current) return;
+            setMissionRes(data);
           }
         } catch (e) {
-          setError(e.message);
+          if (reqId !== reqSeqRef.current) return;
+          setError(e.message || String(e));
         } finally {
-          setLoading(false);
+          if (reqId === reqSeqRef.current) {
+            setLoading(false);
+          }
         }
       }, []);
 
-      const debouncedSolve = useDebouncedCallback(runHybrid, 60);
+      const debouncedSolve = useDebouncedCallback(runHybrid, 80);
 
+      const isFirstMount = useRef(true);
       useEffect(() => {
+        if (isFirstMount.current) {
+          isFirstMount.current = false;
+          runHybrid(p, mParam, mode);
+          return;
+        }
         debouncedSolve(p, mParam, mode);
-      }, [p, mParam, mode, debouncedSolve]);
+      }, [p, mParam, mode, debouncedSolve, runHybrid]);
 
-      const gtPower = res ? (res.gas_turbine_power_kW ?? res.P_gt_kW ?? (p.shaft_power_req_kW * (1 - p.hybrid_power_ratio_HP))) : 0;
-      const emPower = res ? (res.electric_motor_power_kW ?? res.P_em_kW ?? (p.shaft_power_req_kW * p.hybrid_power_ratio_HP)) : 0;
-      const fuelSavings = res ? (res.fuel_savings_pct ?? (res.delta_fuel_pct ? -res.delta_fuel_pct : 14.5)) : 0;
-      const battPower = res ? (res.battery_power_kW ?? res.P_batt_kW ?? 550) : 0;
+      const gtPower = res ? (res.gas_turbine_power_kW ?? res.P_gt_kW ?? (p.shaft_power_req_kW * (1 - p.hybrid_power_ratio_HP))) : null;
+      const emPower = res ? (res.electric_motor_power_kW ?? res.P_em_kW ?? (p.shaft_power_req_kW * p.hybrid_power_ratio_HP)) : null;
+      const fuelSavings = res ? (res.fuel_savings_pct ?? (res.delta_fuel_pct ? -res.delta_fuel_pct : null)) : null;
+      const battPower = res ? (res.battery_power_kW ?? res.P_batt_kW ?? null) : null;
       const masses = res?.powertrain_masses || {};
       const mSummary = missionRes?.summary || {};
+      const totalPowertrainMass = masses.total_powertrain_kg ?? (p.battery_mass_kg + (masses.gas_turbine_kg || 420) + (masses.electric_motor_kg || 180) + (masses.generator_kg || 150) + (masses.inverter_tms_kg || 95));
 
       return (
         <div className="app-workspace">
@@ -1751,7 +1817,7 @@ DOMAINS_5_TO_9 = """
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
                 <div className="panel-card-header" style={{ color: "var(--accent-crimson)" }}>[FAULT] HYBRID SOLVER ERROR</div>
-                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{error}</div>
+                <div className="panel-card-body" style={{ color: "var(--accent-crimson)" }}>{formatErrorText(error)}</div>
               </div>
             )}
 
@@ -1759,12 +1825,12 @@ DOMAINS_5_TO_9 = """
               <div>
                 {/* Top 6 KPI Cards (Stark Titanium White) */}
                 <div className="kpi-grid">
-                  <HudKpi label="GT SHAFT POWER" value={fmt(gtPower, 0)} unit="kW" sub="Gas Turbine Core" />
-                  <HudKpi label="ELECTRIC MOTOR" value={fmt(emPower, 0)} unit="kW" sub="EM Traction" />
-                  <HudKpi label="FUEL SAVINGS" value={fmtPct(fuelSavings)} sub="Vs Conventional" />
-                  <HudKpi label="BATTERY DISCHARGE" value={fmt(battPower, 0)} unit="kW" sub={`C-Rate: ${res ? fmt(res.c_rate || 1.8, 1) : "---"}C`} />
-                  <HudKpi label="TMS WASTE HEAT" value={res ? fmt(res.waste_heat_kW, 1) : "---"} unit="kW" sub="Heat Rejection" />
-                  <HudKpi label="TOTAL EFFICIENCY" value={res ? fmtPct(res.system_efficiency || 0.88) : "---"} sub="Coupled Powertrain" />
+                  <HudKpi label="GT SHAFT POWER" value={gtPower != null ? gtPower : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="power" decimals={0} sub="Gas Turbine Core" />
+                  <HudKpi label="ELECTRIC MOTOR" value={emPower != null ? emPower : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="power" decimals={0} sub="EM Traction" />
+                  <HudKpi label="FUEL SAVINGS" value={fuelSavings != null ? fmtPct(fuelSavings) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Vs Conventional" />
+                  <HudKpi label="BATTERY DISCHARGE" value={battPower != null ? battPower : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="power" decimals={0} sub={`C-Rate: ${res ? fmt(res.c_rate || 1.8, 1) : "---"}C`} />
+                  <HudKpi label="TMS WASTE HEAT" value={res?.waste_heat_kW != null ? res.waste_heat_kW : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="power" decimals={1} sub="Heat Rejection" />
+                  <HudKpi label="TOTAL EFFICIENCY" value={res?.system_efficiency != null ? fmtPct(res.system_efficiency) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Coupled Powertrain" />
                 </div>
 
                 {/* Restored 3 Distinct SVG Powertrain Schematics & Battery Gauge */}
@@ -1777,9 +1843,9 @@ DOMAINS_5_TO_9 = """
                     <div className="panel-card-body">
                       <HybridSchematicSvg
                         arch={p.architecture}
-                        p_gt={gtPower}
-                        p_motor={emPower}
-                        p_batt={battPower}
+                        p_gt={gtPower || 0}
+                        p_motor={emPower || 0}
+                        p_batt={battPower || 0}
                         p_req={p.shaft_power_req_kW}
                       />
                       <BatteryGauge soc={p.battery_soc} />
@@ -1832,7 +1898,7 @@ DOMAINS_5_TO_9 = """
                       </div>
                       <div>
                         <div className="slider-label">TOTAL DRY MASS</div>
-                        <div style={{ fontSize: "14px", fontWeight: 700, color: "#F2F4F8" }}>{fmt(masses.total_powertrain_kg || 2045, 0)} kg</div>
+                        <div style={{ fontSize: "14px", fontWeight: 700, color: "#F2F4F8" }}>{fmt(totalPowertrainMass, 0)} kg</div>
                         <div style={{ fontSize: "8.5px", color: "#8E95A5" }}>Powertrain System</div>
                       </div>
                     </div>
@@ -1843,19 +1909,19 @@ DOMAINS_5_TO_9 = """
               <div>
                 {/* Mission Mode KPI Ribbon */}
                 <div className="kpi-grid">
-                  <HudKpi label="MISSION FUEL BURN" value={mSummary.hybrid_fuel_burn_kg ? fmt(mSummary.hybrid_fuel_burn_kg, 1) : "---"} unit="kg" sub="Total Jet Fuel" />
-                  <HudKpi label="CONVENTIONAL FUEL" value={mSummary.conventional_fuel_burn_kg ? fmt(mSummary.conventional_fuel_burn_kg, 1) : "---"} unit="kg" sub="Baseline GT" />
+                  <HudKpi label="MISSION FUEL BURN" value={mSummary.hybrid_fuel_burn_kg != null ? mSummary.hybrid_fuel_burn_kg : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="mass" decimals={1} sub="Total Jet Fuel" />
+                  <HudKpi label="CONVENTIONAL FUEL" value={mSummary.conventional_fuel_burn_kg != null ? mSummary.conventional_fuel_burn_kg : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="mass" decimals={1} sub="Baseline GT" />
                   <HudKpi 
                     label="NET FUEL SAVED" 
-                    value={mSummary.fuel_saved_percent != null ? fmtPct(mSummary.fuel_saved_percent) : "---"} 
+                    value={mSummary.fuel_saved_percent != null ? fmtPct(mSummary.fuel_saved_percent) : (loading ? "COMPUTING..." : "NOT COMPUTED")} 
                     subTag={{
                       type: (mSummary.fuel_saved_percent || 0) >= 0 ? "optimal" : "critical",
                       label: (mSummary.fuel_saved_percent || 0) >= 0 ? "SAVINGS POSITIVE" : "WEIGHT PENALTY"
                     }}
                   />
-                  <HudKpi label="BATTERY ENERGY USED" value={mSummary.battery_energy_used_kWh ? fmt(mSummary.battery_energy_used_kWh, 1) : "---"} unit="kWh" sub="Total Pack Discharge" />
-                  <HudKpi label="END-OF-MISSION SOC" value={mSummary.end_soc != null ? fmtPct(mSummary.end_soc) : "---"} sub="Reserve Status" />
-                  <HudKpi label="EQUIV CO2 SAVINGS" value={mSummary.co2_saved_kg ? fmt(mSummary.co2_saved_kg, 1) : "---"} unit="kg" sub="Emissions Abatement" />
+                  <HudKpi label="BATTERY ENERGY USED" value={mSummary.battery_energy_used_kWh != null ? fmt(mSummary.battery_energy_used_kWh, 1) : (loading ? "COMPUTING..." : "NOT COMPUTED")} unit="kWh" sub="Total Pack Discharge" />
+                  <HudKpi label="END-OF-MISSION SOC" value={mSummary.end_soc != null ? fmtPct(mSummary.end_soc) : (loading ? "COMPUTING..." : "NOT COMPUTED")} sub="Reserve Status" />
+                  <HudKpi label="EQUIV CO2 SAVINGS" value={mSummary.co2_saved_kg != null ? mSummary.co2_saved_kg : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="mass" decimals={1} sub="Emissions Abatement" />
                 </div>
 
                 {/* Restored 6-Phase Fuel & Energy Bar Chart */}
@@ -1895,8 +1961,8 @@ DOMAINS_5_TO_9 = """
                             <tr key={idx}>
                               <td style={{ color: "var(--accent-amber)", fontWeight: 700 }}>{ph.name || ph.phase || `Phase ${idx + 1}`}</td>
                               <td className="num">{fmt(ph.duration_min, 1)}</td>
-                              <td className="num">{fmt(ph.gas_turbine_power_kW || ph.P_gt_kW, 0)}</td>
-                              <td className="num">{fmt(ph.battery_discharge_kW || ph.P_batt_kW, 0)}</td>
+                              <td className="num">{fmt(ph.gt_power_kW ?? ph.gas_turbine_power_kW ?? ph.P_gt_kW, 0)}</td>
+                              <td className="num">{fmt(ph.battery_power_kW ?? ph.battery_discharge_kW ?? ph.P_batt_kW, 0)}</td>
                               <td className="num" style={{ color: "#F2F4F8", fontWeight: 700 }}>{fmt(ph.fuel_burned_kg || ph.fuel_burn_kg, 1)}</td>
                               <td className="num">{fmt(ph.elec_energy_kWh, 1)}</td>
                               <td className="num" style={{ color: endSoc >= 30 ? "var(--accent-emerald)" : (endSoc >= 20 ? "var(--accent-amber)" : "var(--accent-crimson)") }}>
