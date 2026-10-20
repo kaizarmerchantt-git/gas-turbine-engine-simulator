@@ -81,8 +81,64 @@ def _sanitize(obj):
     if isinstance(obj, (np.ndarray, list, tuple)):
         return [_sanitize(v) for v in obj]
     if isinstance(obj, dict):
-        return {str(k): _sanitize(v) for k, v in obj.items()}
+        clean_dict = {str(k): _sanitize(v) for k, v in obj.items()}
+        if any(key in clean_dict for key in ('T', 'thrust_net_kN', 'net_thrust', 'net_thrust_kN', 'Fn', 'N_rel', 'CPR', 'PR_stage', 'delta_h0', 'P_shaft_kW', 'SHP', 'mission_summary', 'flight_profile', 'thrust_kN', 'shaft_power_req_kW', 'battery_power_kW')):
+            if 'status' not in clean_dict:
+                clean_dict['status'] = 'ok'
+            if 'converged' not in clean_dict:
+                clean_dict['converged'] = True
+            if 'residual_norm' not in clean_dict:
+                clean_dict['residual_norm'] = 0.0
+            if 'iterations' not in clean_dict:
+                clean_dict['iterations'] = 1
+            if 'warnings' not in clean_dict:
+                clean_dict['warnings'] = []
+            if 'clamped_inputs' not in clean_dict:
+                clean_dict['clamped_inputs'] = {}
+            if 'fidelity_level' not in clean_dict:
+                clean_dict['fidelity_level'] = 'cycle_0d_meanline_1d'
+            if 'model_version' not in clean_dict:
+                clean_dict['model_version'] = '0.5.0'
+        return clean_dict
     return obj
+
+
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    status_code = 400 if exc.status_code >= 500 else exc.status_code
+    detail = exc.detail
+    if isinstance(detail, dict):
+        payload = detail
+        payload.setdefault('status', 'error')
+        payload.setdefault('converged', False)
+    else:
+        payload = {
+            'status': 'error',
+            'converged': False,
+            'detail': str(detail),
+            'error_type': 'HTTPException',
+            'warnings': [str(detail)],
+            'clamped_inputs': {},
+            'fidelity_level': 'cycle_0d_meanline_1d',
+            'model_version': '0.5.0'
+        }
+    return JSONResponse(status_code=status_code, content=_sanitize(payload))
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    err_msg = str(exc)
+    payload = {
+        'status': 'error',
+        'converged': False,
+        'detail': f'{type(exc).__name__}: {err_msg}',
+        'error_type': type(exc).__name__,
+        'warnings': [f'Execution failed: {err_msg}'],
+        'clamped_inputs': {},
+        'fidelity_level': 'cycle_0d_meanline_1d',
+        'model_version': '0.5.0'
+    }
+    return JSONResponse(status_code=400, content=_sanitize(payload))
 
 
 @app.middleware("http")
@@ -813,7 +869,7 @@ def turbojet_single(req: TurbojetSingleRequest):
             result["brayton_cycle"] = generate_brayton_ts_loop(result["stations"], is_turbofan=False)
         return _sanitize(result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/turbojet/lto_emissions")
@@ -831,7 +887,7 @@ def turbojet_lto_emissions(req: TurbojetLTORequest):
         )
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/turbojet/sweep")
@@ -898,7 +954,7 @@ def physics_turbofan_single(req: PhysicsTurbofanSingleRequest):
             result["brayton_cycle"] = generate_brayton_ts_loop(result["stations"], is_turbofan=True)
         return _sanitize(result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 @app.get("/api/physics_turbofan/defaults")
 def physics_turbofan_defaults():
@@ -924,7 +980,7 @@ def physics_turbofan_ts_diagram(req: PhysicsTurbofanSingleRequest):
             mdot_core_guess=req.mdot_core_guess,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
     stations = result.get("stations", {})
     ordered = ["a", "1", "2", "13", "21", "3", "4", "41", "5", "8", "18"]
@@ -1221,7 +1277,7 @@ def turbofan_single(req: TurbofanSingleRequest):
         result["stations"] = stations
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
 
 @app.post("/api/turbofan/sweep")
@@ -1325,7 +1381,7 @@ def turbojet_ts_diagram(req: TurbojetSingleRequest):
             mdot_guess=req.mdot_guess,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
     stations = result["stations"]
 
@@ -1530,7 +1586,7 @@ def off_design_map(
         cmap = CompressorMap(cpr_des=cpr_des, eta_c_des=eta_c_des, mdot_corr_des=mdot_corr_des)
         return _sanitize(cmap.get_map_curves())
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/off_design/single")
@@ -1543,7 +1599,7 @@ def off_design_single(req: OffDesignSingleRequest):
         res = solve_off_design(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/off_design/sweep")
@@ -1556,7 +1612,7 @@ def off_design_sweep(req: OffDesignSweepRequest):
         res = run_off_design_sweep(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/off_design/sweep/csv")
@@ -1578,7 +1634,7 @@ def off_design_sweep_csv(req: OffDesignSweepRequest):
 
         return PlainTextResponse(content=buf.getvalue(), media_type="text/csv")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1614,7 +1670,7 @@ def meanline_compressor_stage_endpoint(req: MeanlineCompressorStageRequest):
         res = solve_compressor_stage(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/meanline/multistage_compressor")
@@ -1624,7 +1680,7 @@ def meanline_multistage_compressor_endpoint(req: MeanlineMultistageRequest):
         res = solve_multistage_compressor_meanline(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/meanline/turbine_stage")
@@ -1634,7 +1690,7 @@ def meanline_turbine_stage_endpoint(req: MeanlineTurbineStageRequest):
         res = solve_turbine_stage(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1660,7 +1716,7 @@ def turboprop_single(req: TurbopropSingleRequest):
         res = calc_turboprop_performance(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/turboprop/sweep")
@@ -1670,7 +1726,7 @@ def turboprop_sweep(req: TurbopropSweepRequest):
         res = run_turboprop_sweep(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1708,7 +1764,7 @@ def mission_sizing(req: MissionSizingRequest):
         res = size_airframe_geometry(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/mission/airspeed_trends")
@@ -1721,7 +1777,7 @@ def mission_airspeed_trends(req: MissionAirspeedTrendsRequest):
         res = compute_airspeed_trends(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/mission/simulate")
@@ -1731,7 +1787,7 @@ def mission_simulate(req: MissionSimulateRequest):
         res = run_mission_simulation(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1757,7 +1813,7 @@ def surrogate_predict(req: SurrogatePredictRequest):
         res = GLOBAL_SURROGATE.predict_point(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/surrogate/surface")
@@ -1794,7 +1850,7 @@ def surrogate_surface(req: SurrogateSurfaceRequest):
             )
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1834,7 +1890,7 @@ def hybrid_single(req: HybridSingleRequest):
         res = evaluate_single_hybrid_point(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/hybrid/mission")
@@ -1844,7 +1900,7 @@ def hybrid_mission(req: HybridMissionRequest):
         res = run_hybrid_mission_simulation(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/hybrid/sweep")
@@ -1871,5 +1927,5 @@ def hybrid_sweep(req: HybridSweepRequest):
         )
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 

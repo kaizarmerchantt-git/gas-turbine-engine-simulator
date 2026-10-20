@@ -1,0 +1,3955 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Gas Turbine Engine Simulator",
+    "description": "Interactive engine performance simulation combining a Cantera-based turbojet model and the GE CF34-10E turbofan deck from pyCycle.",
+    "version": "0.5.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/app": {
+      "get": {
+        "summary": "Serve App",
+        "description": "Direct route to serve the interactive web simulator frontend (v0.5 Obsidian Blueprint).",
+        "operationId": "serve_app_app_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/legacy": {
+      "get": {
+        "summary": "Serve Legacy",
+        "description": "Route to serve the legacy v0.4 frontend.",
+        "operationId": "serve_legacy_legacy_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/index.html": {
+      "get": {
+        "summary": "Serve V05",
+        "description": "Direct route to serve the v0.5 Obsidian Vector Blueprint UI.",
+        "operationId": "serve_v05_index_html_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v0.5": {
+      "get": {
+        "summary": "Serve V05",
+        "description": "Direct route to serve the v0.5 Obsidian Vector Blueprint UI.",
+        "operationId": "serve_v05_v0_5_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Api Health",
+        "description": "Health check endpoint for real-time frontend connection status badge.",
+        "operationId": "api_health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "summary": "Api Health",
+        "description": "Health check endpoint for real-time frontend connection status badge.",
+        "operationId": "api_health_api_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbojet/defaults": {
+      "get": {
+        "summary": "Turbojet Defaults",
+        "description": "Return the default engine parameters for the Orenda-style turbojet.",
+        "operationId": "turbojet_defaults_api_turbojet_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbojet/single": {
+      "post": {
+        "summary": "Turbojet Single",
+        "description": "Run a single-point turbojet simulation and return station-level results.\nComputation time: ~5\u201330 seconds depending on convergence iterations.",
+        "operationId": "turbojet_single_api_turbojet_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbojetSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbojet/lto_emissions": {
+      "post": {
+        "summary": "Turbojet Lto Emissions",
+        "description": "Run 4-mode ICAO Annex 16 Volume II certified LTO cycle (Takeoff, Climbout, Approach, Taxi/Idle)\nand return mode-by-mode emissions, total mass of pollutants, and Dp/Foo certified metric.",
+        "operationId": "turbojet_lto_emissions_api_turbojet_lto_emissions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbojetLTORequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbojet/sweep": {
+      "post": {
+        "summary": "Turbojet Sweep",
+        "description": "Run a parameter sweep for the turbojet.\nReturns a list of single-point results \u2014 one per sweep step.\nWARNING: each point takes ~5\u201330 s. Keep n_steps \u2264 15 for reasonable wait times.",
+        "operationId": "turbojet_sweep_api_turbojet_sweep_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbojetSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/physics_turbofan/single": {
+      "post": {
+        "summary": "Physics Turbofan Single",
+        "description": "Run a single-point physics-based turbofan simulation.",
+        "operationId": "physics_turbofan_single_api_physics_turbofan_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhysicsTurbofanSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/physics_turbofan/defaults": {
+      "get": {
+        "summary": "Physics Turbofan Defaults",
+        "description": "Return default parameters and performance metrics for the physics turbofan.",
+        "operationId": "physics_turbofan_defaults_api_physics_turbofan_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/physics_turbofan/ts_diagram": {
+      "post": {
+        "summary": "Physics Turbofan Ts Diagram",
+        "description": "Run the physics turbofan model and return station T and s values suitable\nfor plotting a T-s diagram for both core and bypass streams.",
+        "operationId": "physics_turbofan_ts_diagram_api_physics_turbofan_ts_diagram_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhysicsTurbofanSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/physics_turbofan/sweep": {
+      "post": {
+        "summary": "Physics Turbofan Sweep",
+        "description": "Run a multi-point parameter sweep for the physics turbofan model.\nWarm-starts mdot_core_guess across consecutive steps.",
+        "operationId": "physics_turbofan_sweep_api_physics_turbofan_sweep_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhysicsTurbofanSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/physics_turbofan/sweep/csv": {
+      "post": {
+        "summary": "Physics Turbofan Sweep Csv",
+        "description": "Run a physics turbofan sweep and return results as a CSV string.",
+        "operationId": "physics_turbofan_sweep_csv_api_physics_turbofan_sweep_csv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhysicsTurbofanSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbofan/envelope": {
+      "get": {
+        "summary": "Turbofan Envelope",
+        "description": "Return the flight envelope and available parameter ranges for the CF34 deck.",
+        "operationId": "turbofan_envelope_api_turbofan_envelope_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cf34/single": {
+      "post": {
+        "summary": "Turbofan Single",
+        "description": "Interpolate the CF34 deck at a given (altitude, Mach, power code).\nVery fast \u2014 typically < 50 ms.",
+        "operationId": "turbofan_single_api_cf34_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbofanSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbofan/single": {
+      "post": {
+        "summary": "Turbofan Single",
+        "description": "Interpolate the CF34 deck at a given (altitude, Mach, power code).\nVery fast \u2014 typically < 50 ms.",
+        "operationId": "turbofan_single_api_turbofan_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbofanSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbofan/sweep": {
+      "post": {
+        "summary": "Turbofan Sweep",
+        "description": "Sweep altitude, Mach, or power over the CF34 deck.\nFast operation \u2014 the deck is pre-computed.",
+        "operationId": "turbofan_sweep_api_turbofan_sweep_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbofanSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbofan/altitudes": {
+      "get": {
+        "summary": "Turbofan Altitudes",
+        "description": "Return the list of altitude values present in the CF34 deck.",
+        "operationId": "turbofan_altitudes_api_turbofan_altitudes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cf34/sweep_altitude": {
+      "get": {
+        "summary": "Cf34 Sweep Altitude",
+        "description": "Convenience endpoint for fast CF34 altitude sweep curves.",
+        "operationId": "cf34_sweep_altitude_api_cf34_sweep_altitude_get",
+        "parameters": [
+          {
+            "name": "MN",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.8,
+              "title": "Mn"
+            }
+          },
+          {
+            "name": "PC",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 1.0,
+              "title": "Pc"
+            }
+          },
+          {
+            "name": "n_points",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 25,
+              "title": "N Points"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cf34/sweep_mach": {
+      "get": {
+        "summary": "Cf34 Sweep Mach",
+        "description": "Convenience endpoint for fast CF34 Mach sweep curves.",
+        "operationId": "cf34_sweep_mach_api_cf34_sweep_mach_get",
+        "parameters": [
+          {
+            "name": "alt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 35000.0,
+              "title": "Alt"
+            }
+          },
+          {
+            "name": "PC",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 1.0,
+              "title": "Pc"
+            }
+          },
+          {
+            "name": "n_points",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 25,
+              "title": "N Points"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbojet/ts_diagram": {
+      "post": {
+        "summary": "Turbojet Ts Diagram",
+        "description": "Run the turbojet model and return per-station T and s values suitable\nfor plotting a T-s diagram.  Also returns isobar trace data for the\npressure at each station so the frontend can draw isobars.",
+        "operationId": "turbojet_ts_diagram_api_turbojet_ts_diagram_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbojetSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbojet/compare": {
+      "post": {
+        "summary": "Turbojet Compare",
+        "description": "Run two turbojet configurations at the same flight condition and return\nboth results for side-by-side comparison.",
+        "operationId": "turbojet_compare_api_turbojet_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbojet/sweep/csv": {
+      "post": {
+        "summary": "Turbojet Sweep Csv",
+        "description": "Run a turbojet sweep and return results as a CSV string\n(for the frontend Download button).",
+        "operationId": "turbojet_sweep_csv_api_turbojet_sweep_csv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbojetSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbofan/sweep/csv": {
+      "post": {
+        "summary": "Turbofan Sweep Csv",
+        "description": "Run a turbofan sweep and return results as a CSV string.",
+        "operationId": "turbofan_sweep_csv_api_turbofan_sweep_csv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbofanSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/off_design/defaults": {
+      "get": {
+        "summary": "Off Design Defaults",
+        "description": "Return default inputs and design parameters for off-design simulation.",
+        "operationId": "off_design_defaults_api_off_design_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/off_design/compressor_map": {
+      "get": {
+        "summary": "Off Design Map",
+        "description": "Returns compressor map curves (speed lines, surge boundary, design point)\nscaled to the provided design parameters for front-end Chart.js visualization.",
+        "operationId": "off_design_map_api_off_design_compressor_map_get",
+        "parameters": [
+          {
+            "name": "cpr_des",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 8.0,
+              "title": "Cpr Des"
+            }
+          },
+          {
+            "name": "eta_c_des",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.85,
+              "title": "Eta C Des"
+            }
+          },
+          {
+            "name": "mdot_corr_des",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 20.0,
+              "title": "Mdot Corr Des"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/off_design/map": {
+      "get": {
+        "summary": "Off Design Map",
+        "description": "Returns compressor map curves (speed lines, surge boundary, design point)\nscaled to the provided design parameters for front-end Chart.js visualization.",
+        "operationId": "off_design_map_api_off_design_map_get",
+        "parameters": [
+          {
+            "name": "cpr_des",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 8.0,
+              "title": "Cpr Des"
+            }
+          },
+          {
+            "name": "eta_c_des",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.85,
+              "title": "Eta C Des"
+            }
+          },
+          {
+            "name": "mdot_corr_des",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 20.0,
+              "title": "Mdot Corr Des"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/off_design/single": {
+      "post": {
+        "summary": "Off Design Single",
+        "description": "Run a single-point off-design operating condition solver with fixed geometry (A8).\nComputes matched operating point, station thermodynamics, and surge margin (%SM).",
+        "operationId": "off_design_single_api_off_design_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OffDesignSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/off_design/sweep": {
+      "post": {
+        "summary": "Off Design Sweep",
+        "description": "Run an off-design parameter sweep across relative shaft speed N, altitude, or Mach.\nReturns sweep points, map speed lines, and the engine operating line trajectory.",
+        "operationId": "off_design_sweep_api_off_design_sweep_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OffDesignSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/off_design/sweep/csv": {
+      "post": {
+        "summary": "Off Design Sweep Csv",
+        "description": "Run an off-design sweep and stream the results as downloadable CSV.",
+        "operationId": "off_design_sweep_csv_api_off_design_sweep_csv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OffDesignSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/meanline/defaults": {
+      "get": {
+        "summary": "Meanline Defaults",
+        "description": "Return default parameters for single-stage and multistage meanline design.",
+        "operationId": "meanline_defaults_api_meanline_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/meanline/compressor_stage": {
+      "post": {
+        "summary": "Meanline Compressor Stage Endpoint",
+        "description": "Computes velocity triangles, stage loading, De Haller ratio, and Lieblein DF for a compressor stage.",
+        "operationId": "meanline_compressor_stage_endpoint_api_meanline_compressor_stage_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeanlineCompressorStageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/meanline/multistage_compressor": {
+      "post": {
+        "summary": "Meanline Multistage Compressor Endpoint",
+        "description": "Solves stage-by-stage meanline aerodynamic stacking and annulus tapering for an axial compressor.",
+        "operationId": "meanline_multistage_compressor_endpoint_api_meanline_multistage_compressor_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeanlineMultistageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/meanline/turbine_stage": {
+      "post": {
+        "summary": "Meanline Turbine Stage Endpoint",
+        "description": "Computes velocity triangles, stage loading, and Zweifel coefficient for an axial turbine stage.",
+        "operationId": "meanline_turbine_stage_endpoint_api_meanline_turbine_stage_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeanlineTurbineStageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turboprop/defaults": {
+      "get": {
+        "summary": "Turboprop Defaults",
+        "description": "Return default flight and engine parameters for turboprop simulation.",
+        "operationId": "turboprop_defaults_api_turboprop_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turboprop/single": {
+      "post": {
+        "summary": "Turboprop Single",
+        "description": "Run single-point turboprop / turboshaft cycle simulation with power turbine extraction.",
+        "operationId": "turboprop_single_api_turboprop_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbopropSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turboprop/sweep": {
+      "post": {
+        "summary": "Turboprop Sweep",
+        "description": "Run parametric sweep for turboprop across power (TIT), altitude, or Mach.",
+        "operationId": "turboprop_sweep_api_turboprop_sweep_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbopropSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mission/defaults": {
+      "get": {
+        "summary": "Mission Defaults",
+        "description": "Return default mission profile, aircraft presets, and airframe sizing defaults.",
+        "operationId": "mission_defaults_api_mission_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mission/presets": {
+      "get": {
+        "summary": "Mission Presets",
+        "description": "Return all available predefined aircraft and drone sizing configurations.",
+        "operationId": "mission_presets_api_mission_presets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mission/sizing": {
+      "post": {
+        "summary": "Mission Sizing",
+        "description": "Computes closed-loop wing and empennage geometry from Wing Loading (W/S)\nand mass fractions, exactly matching General Sizing Blank.xlsx formulas.",
+        "operationId": "mission_sizing_api_mission_sizing_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionSizingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mission/airspeed_trends": {
+      "post": {
+        "summary": "Mission Airspeed Trends",
+        "description": "Evaluates continuous polar trends across airspeeds (General Sizing Blank Trends sheet):\nParasitic Drag D0, Induced Drag Di, Wave Drag Dw, Total Drag, L/D, and Power Required.",
+        "operationId": "mission_airspeed_trends_api_mission_airspeed_trends_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionAirspeedTrendsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mission/simulate": {
+      "post": {
+        "summary": "Mission Simulate",
+        "description": "Simulate a complete 7-phase flight mission and generate payload-range envelope.",
+        "operationId": "mission_simulate_api_mission_simulate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionSimulateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/surrogate/defaults": {
+      "get": {
+        "summary": "Surrogate Defaults",
+        "description": "Return default query parameters for fast surrogate model evaluation.",
+        "operationId": "surrogate_defaults_api_surrogate_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/surrogate/predict": {
+      "post": {
+        "summary": "Surrogate Predict",
+        "description": "Instantaneous (< 1 ms) multi-output cycle prediction via pure NumPy RBF surrogate.",
+        "operationId": "surrogate_predict_api_surrogate_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurrogatePredictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/surrogate/surface": {
+      "post": {
+        "summary": "Surrogate Surface",
+        "description": "Rapid (< 5 ms) 2D grid response surface or 1D response curve generation.",
+        "operationId": "surrogate_surface_api_surrogate_surface_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurrogateSurfaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hybrid/defaults": {
+      "get": {
+        "summary": "Hybrid Defaults",
+        "description": "Return default parameters for hybrid electric powertrain and aircraft simulation.",
+        "operationId": "hybrid_defaults_api_hybrid_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hybrid/single": {
+      "post": {
+        "summary": "Hybrid Single",
+        "description": "Evaluate instantaneous hybrid electric powertrain states (parallel, series, or turboelectric).",
+        "operationId": "hybrid_single_api_hybrid_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HybridSingleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hybrid/mission": {
+      "post": {
+        "summary": "Hybrid Mission",
+        "description": "Simulate a 6-phase hybrid flight mission with battery SoC tracking and conventional comparison.",
+        "operationId": "hybrid_mission_api_hybrid_mission_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HybridMissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hybrid/sweep": {
+      "post": {
+        "summary": "Hybrid Sweep",
+        "description": "Run parametric trade studies (hybrid ratio, battery specific energy, or stage length).",
+        "operationId": "hybrid_sweep_api_hybrid_sweep_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HybridSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CompareRequest": {
+        "properties": {
+          "config_a": {
+            "$ref": "#/components/schemas/TurbojetSingleRequest"
+          },
+          "config_b": {
+            "$ref": "#/components/schemas/TurbojetSingleRequest"
+          },
+          "label_a": {
+            "type": "string",
+            "title": "Label A",
+            "default": "Config A"
+          },
+          "label_b": {
+            "type": "string",
+            "title": "Label B",
+            "default": "Config B"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config_a",
+          "config_b"
+        ],
+        "title": "CompareRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HybridMissionRequest": {
+        "properties": {
+          "architecture": {
+            "type": "string",
+            "enum": [
+              "parallel",
+              "series",
+              "turboelectric"
+            ],
+            "title": "Architecture",
+            "default": "parallel"
+          },
+          "cruise_alt_m": {
+            "type": "number",
+            "maximum": 13000.0,
+            "minimum": 3000.0,
+            "title": "Cruise Alt M",
+            "default": 9144.0
+          },
+          "cruise_mach": {
+            "type": "number",
+            "maximum": 0.88,
+            "minimum": 0.3,
+            "title": "Cruise Mach",
+            "default": 0.72
+          },
+          "cruise_dist_km": {
+            "type": "number",
+            "maximum": 3500.0,
+            "minimum": 100.0,
+            "title": "Cruise Dist Km",
+            "default": 900.0
+          },
+          "payload_kg": {
+            "type": "number",
+            "maximum": 15000.0,
+            "minimum": 500.0,
+            "title": "Payload Kg",
+            "default": 6500.0
+          },
+          "battery_mass_kg": {
+            "type": "number",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Battery Mass Kg",
+            "default": 1800.0
+          },
+          "specific_energy_Wh_kg": {
+            "type": "number",
+            "maximum": 800.0,
+            "minimum": 150.0,
+            "title": "Specific Energy Wh Kg",
+            "default": 300.0
+          },
+          "takeoff_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.7,
+            "minimum": 0.0,
+            "title": "Takeoff Hybrid Ratio",
+            "default": 0.35
+          },
+          "climb_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Climb Hybrid Ratio",
+            "default": 0.2
+          },
+          "cruise_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.3,
+            "minimum": 0.0,
+            "title": "Cruise Hybrid Ratio",
+            "default": 0.05
+          },
+          "descent_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.2,
+            "minimum": 0.0,
+            "title": "Descent Hybrid Ratio",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "HybridMissionRequest"
+      },
+      "HybridSingleRequest": {
+        "properties": {
+          "architecture": {
+            "type": "string",
+            "enum": [
+              "parallel",
+              "series",
+              "turboelectric"
+            ],
+            "title": "Architecture",
+            "default": "parallel"
+          },
+          "shaft_power_req_kW": {
+            "type": "number",
+            "maximum": 20000.0,
+            "minimum": 100.0,
+            "title": "Shaft Power Req Kw",
+            "default": 2000.0
+          },
+          "hybrid_power_ratio_HP": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Hybrid Power Ratio Hp",
+            "default": 0.25
+          },
+          "battery_mass_kg": {
+            "type": "number",
+            "maximum": 15000.0,
+            "minimum": 0.0,
+            "title": "Battery Mass Kg",
+            "default": 1200.0
+          },
+          "battery_soc": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.05,
+            "title": "Battery Soc",
+            "default": 0.85
+          },
+          "turbogen_rated_kW": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 20000.0,
+                "minimum": 100.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turbogen Rated Kw"
+          }
+        },
+        "type": "object",
+        "title": "HybridSingleRequest"
+      },
+      "HybridSweepRequest": {
+        "properties": {
+          "study_type": {
+            "type": "string",
+            "enum": [
+              "hybrid_ratio",
+              "specific_energy",
+              "distance"
+            ],
+            "title": "Study Type",
+            "default": "hybrid_ratio"
+          },
+          "architecture": {
+            "type": "string",
+            "enum": [
+              "parallel",
+              "series",
+              "turboelectric"
+            ],
+            "title": "Architecture",
+            "default": "parallel"
+          },
+          "n_points": {
+            "type": "integer",
+            "maximum": 25.0,
+            "minimum": 4.0,
+            "title": "N Points",
+            "default": 10
+          },
+          "cruise_alt_m": {
+            "type": "number",
+            "maximum": 13000.0,
+            "minimum": 3000.0,
+            "title": "Cruise Alt M",
+            "default": 9144.0
+          },
+          "cruise_mach": {
+            "type": "number",
+            "maximum": 0.88,
+            "minimum": 0.3,
+            "title": "Cruise Mach",
+            "default": 0.72
+          },
+          "cruise_dist_km": {
+            "type": "number",
+            "maximum": 3500.0,
+            "minimum": 100.0,
+            "title": "Cruise Dist Km",
+            "default": 900.0
+          },
+          "payload_kg": {
+            "type": "number",
+            "maximum": 15000.0,
+            "minimum": 500.0,
+            "title": "Payload Kg",
+            "default": 6500.0
+          },
+          "specific_energy_Wh_kg": {
+            "type": "number",
+            "maximum": 800.0,
+            "minimum": 150.0,
+            "title": "Specific Energy Wh Kg",
+            "default": 300.0
+          },
+          "battery_mass_kg": {
+            "type": "number",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Battery Mass Kg",
+            "default": 1800.0
+          },
+          "takeoff_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.7,
+            "minimum": 0.0,
+            "title": "Takeoff Hybrid Ratio",
+            "default": 0.35
+          },
+          "climb_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Climb Hybrid Ratio",
+            "default": 0.2
+          },
+          "cruise_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.3,
+            "minimum": 0.0,
+            "title": "Cruise Hybrid Ratio",
+            "default": 0.05
+          },
+          "descent_hybrid_ratio": {
+            "type": "number",
+            "maximum": 0.2,
+            "minimum": 0.0,
+            "title": "Descent Hybrid Ratio",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "HybridSweepRequest"
+      },
+      "MeanlineCompressorStageRequest": {
+        "properties": {
+          "T01": {
+            "type": "number",
+            "maximum": 800.0,
+            "minimum": 150.0,
+            "title": "T01",
+            "default": 288.15
+          },
+          "P01": {
+            "type": "number",
+            "maximum": 5000000.0,
+            "minimum": 5000.0,
+            "title": "P01",
+            "default": 101325.0
+          },
+          "delta_T0": {
+            "type": "number",
+            "maximum": 120.0,
+            "minimum": 5.0,
+            "title": "Delta T0",
+            "default": 35.0
+          },
+          "N_rpm": {
+            "type": "number",
+            "maximum": 50000.0,
+            "minimum": 1000.0,
+            "title": "N Rpm",
+            "default": 12000.0
+          },
+          "r_mean": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.05,
+            "title": "R Mean",
+            "default": 0.28
+          },
+          "C_a": {
+            "type": "number",
+            "maximum": 350.0,
+            "minimum": 50.0,
+            "title": "C A",
+            "default": 160.0
+          },
+          "reaction": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.1,
+            "title": "Reaction",
+            "default": 0.5
+          },
+          "eta_stage": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta Stage",
+            "default": 0.88
+          },
+          "mdot": {
+            "type": "number",
+            "maximum": 200.0,
+            "minimum": 0.5,
+            "title": "Mdot",
+            "default": 20.0
+          },
+          "solidity": {
+            "type": "number",
+            "maximum": 2.5,
+            "minimum": 0.6,
+            "title": "Solidity",
+            "default": 1.2
+          },
+          "alpha_1_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alpha 1 Deg"
+          },
+          "beta_2_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beta 2 Deg"
+          },
+          "C_a1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "C A1"
+          },
+          "C_a2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "C A2"
+          },
+          "alpha_3_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alpha 3 Deg"
+          },
+          "U": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "U"
+          }
+        },
+        "type": "object",
+        "title": "MeanlineCompressorStageRequest"
+      },
+      "MeanlineMultistageRequest": {
+        "properties": {
+          "CPR": {
+            "type": "number",
+            "maximum": 40.0,
+            "minimum": 1.5,
+            "title": "Cpr",
+            "default": 8.0
+          },
+          "n_stages": {
+            "type": "integer",
+            "maximum": 18.0,
+            "minimum": 1.0,
+            "title": "N Stages",
+            "default": 6
+          },
+          "T0_inlet": {
+            "type": "number",
+            "maximum": 600.0,
+            "minimum": 150.0,
+            "title": "T0 Inlet",
+            "default": 288.15
+          },
+          "P0_inlet": {
+            "type": "number",
+            "maximum": 500000.0,
+            "minimum": 5000.0,
+            "title": "P0 Inlet",
+            "default": 101325.0
+          },
+          "N_rpm": {
+            "type": "number",
+            "maximum": 50000.0,
+            "minimum": 1000.0,
+            "title": "N Rpm",
+            "default": 12000.0
+          },
+          "r_mean": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.05,
+            "title": "R Mean",
+            "default": 0.28
+          },
+          "C_a": {
+            "type": "number",
+            "maximum": 350.0,
+            "minimum": 50.0,
+            "title": "C A",
+            "default": 160.0
+          },
+          "reaction": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.1,
+            "title": "Reaction",
+            "default": 0.5
+          },
+          "eta_poly": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta Poly",
+            "default": 0.88
+          },
+          "mdot": {
+            "type": "number",
+            "maximum": 200.0,
+            "minimum": 0.5,
+            "title": "Mdot",
+            "default": 20.0
+          }
+        },
+        "type": "object",
+        "title": "MeanlineMultistageRequest"
+      },
+      "MeanlineTurbineStageRequest": {
+        "properties": {
+          "T01": {
+            "type": "number",
+            "maximum": 2200.0,
+            "minimum": 800.0,
+            "title": "T01",
+            "default": 1400.0
+          },
+          "P01": {
+            "type": "number",
+            "maximum": 5000000.0,
+            "minimum": 50000.0,
+            "title": "P01",
+            "default": 800000.0
+          },
+          "delta_T0": {
+            "type": "number",
+            "maximum": 400.0,
+            "minimum": 20.0,
+            "title": "Delta T0",
+            "default": 180.0
+          },
+          "N_rpm": {
+            "type": "number",
+            "maximum": 50000.0,
+            "minimum": 1000.0,
+            "title": "N Rpm",
+            "default": 12000.0
+          },
+          "r_mean": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.05,
+            "title": "R Mean",
+            "default": 0.28
+          },
+          "C_a": {
+            "type": "number",
+            "maximum": 450.0,
+            "minimum": 50.0,
+            "title": "C A",
+            "default": 220.0
+          },
+          "reaction": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.1,
+            "title": "Reaction",
+            "default": 0.4
+          },
+          "eta_stage": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta Stage",
+            "default": 0.9
+          },
+          "solidity": {
+            "type": "number",
+            "maximum": 2.5,
+            "minimum": 0.6,
+            "title": "Solidity",
+            "default": 1.4
+          },
+          "alpha_2_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alpha 2 Deg"
+          },
+          "beta_3_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beta 3 Deg"
+          },
+          "U": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "U"
+          }
+        },
+        "type": "object",
+        "title": "MeanlineTurbineStageRequest"
+      },
+      "MissionAirspeedTrendsRequest": {
+        "properties": {
+          "gross_mass_kg": {
+            "type": "number",
+            "maximum": 400000.0,
+            "minimum": 1.0,
+            "title": "Gross Mass Kg",
+            "default": 25.0
+          },
+          "wing_area_m2": {
+            "type": "number",
+            "maximum": 1000.0,
+            "minimum": 0.1,
+            "title": "Wing Area M2",
+            "default": 1.6
+          },
+          "aspect_ratio": {
+            "type": "number",
+            "maximum": 25.0,
+            "minimum": 3.0,
+            "title": "Aspect Ratio",
+            "default": 10.0
+          },
+          "CD0": {
+            "type": "number",
+            "maximum": 0.1,
+            "minimum": 0.005,
+            "title": "Cd0",
+            "default": 0.024
+          },
+          "oswald_e": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.5,
+            "title": "Oswald E",
+            "default": 0.85
+          },
+          "CL_max": {
+            "type": "number",
+            "maximum": 2.5,
+            "minimum": 0.8,
+            "title": "Cl Max",
+            "default": 1.35
+          },
+          "alt_ft": {
+            "type": "number",
+            "maximum": 55000.0,
+            "minimum": 0.0,
+            "title": "Alt Ft",
+            "default": 8000.0
+          },
+          "n_points": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 15.0,
+            "title": "N Points",
+            "default": 35
+          },
+          "engine_base_tsfc": {
+            "type": "number",
+            "maximum": 50.0,
+            "minimum": 5.0,
+            "title": "Engine Base Tsfc",
+            "default": 18.0
+          }
+        },
+        "type": "object",
+        "title": "MissionAirspeedTrendsRequest"
+      },
+      "MissionSimulateRequest": {
+        "properties": {
+          "aircraft_type": {
+            "type": "string",
+            "title": "Aircraft Type",
+            "default": "generic_twin"
+          },
+          "cruise_alt_ft": {
+            "type": "number",
+            "maximum": 55000.0,
+            "minimum": 500.0,
+            "title": "Cruise Alt Ft",
+            "default": 35000.0
+          },
+          "cruise_mach": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.05,
+            "title": "Cruise Mach",
+            "default": 0.78
+          },
+          "cruise_distance_nm": {
+            "type": "number",
+            "maximum": 12000.0,
+            "minimum": 10.0,
+            "title": "Cruise Distance Nm",
+            "default": 1200.0
+          },
+          "payload_kg": {
+            "type": "number",
+            "maximum": 60000.0,
+            "minimum": 0.0,
+            "title": "Payload Kg",
+            "default": 9000.0
+          },
+          "fuel_load_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 120000.0,
+                "minimum": 0.5
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fuel Load Kg"
+          },
+          "engine_base_tsfc": {
+            "type": "number",
+            "maximum": 50.0,
+            "minimum": 5.0,
+            "title": "Engine Base Tsfc",
+            "default": 16.5
+          }
+        },
+        "type": "object",
+        "title": "MissionSimulateRequest"
+      },
+      "MissionSizingRequest": {
+        "properties": {
+          "gross_mass_kg": {
+            "type": "number",
+            "maximum": 400000.0,
+            "minimum": 1.0,
+            "title": "Gross Mass Kg",
+            "default": 25.0
+          },
+          "wing_loading_kg_m2": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000.0,
+                "minimum": 5.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wing Loading Kg M2"
+          },
+          "aspect_ratio": {
+            "type": "number",
+            "maximum": 25.0,
+            "minimum": 3.0,
+            "title": "Aspect Ratio",
+            "default": 10.0
+          },
+          "taper_ratio": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Taper Ratio",
+            "default": 0.65
+          },
+          "V_H": {
+            "type": "number",
+            "maximum": 1.5,
+            "minimum": 0.1,
+            "title": "V H",
+            "default": 0.5
+          },
+          "V_V": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.01,
+            "title": "V V",
+            "default": 0.04
+          },
+          "material": {
+            "type": "string",
+            "title": "Material",
+            "default": "composite"
+          }
+        },
+        "type": "object",
+        "title": "MissionSizingRequest"
+      },
+      "OffDesignSingleRequest": {
+        "properties": {
+          "N_rel": {
+            "type": "number",
+            "maximum": 1.1,
+            "minimum": 0.5,
+            "title": "N Rel",
+            "description": "Relative spool speed N/N_des",
+            "default": 1.0
+          },
+          "alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt",
+            "description": "Altitude [ft]",
+            "default": 35000.0
+          },
+          "mach": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Mach",
+            "description": "Flight Mach number",
+            "default": 0.8
+          },
+          "cpr_des": {
+            "type": "number",
+            "maximum": 35.0,
+            "minimum": 2.0,
+            "title": "Cpr Des",
+            "description": "Design compressor pressure ratio",
+            "default": 8.0
+          },
+          "eta_c_des": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta C Des",
+            "description": "Design compressor efficiency",
+            "default": 0.85
+          },
+          "mdot_corr_des": {
+            "type": "number",
+            "maximum": 200.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Mdot Corr Des",
+            "description": "Design corrected mass flow [kg/s]",
+            "default": 20.0
+          },
+          "A8": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "A8",
+            "description": "Nozzle throat area [m\u00b2]. Sized to design if omitted."
+          },
+          "des_alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Des Alt",
+            "description": "Reference design point altitude [ft]",
+            "default": 35000.0
+          },
+          "des_mach": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Des Mach",
+            "description": "Reference design point Mach number",
+            "default": 0.8
+          },
+          "eta_i": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.7,
+            "title": "Eta I",
+            "default": 0.98
+          },
+          "eta_t": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta T",
+            "default": 0.88
+          },
+          "mech_loss": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Mech Loss",
+            "default": 0.99
+          },
+          "eta_b": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta B",
+            "default": 0.99
+          },
+          "dp_over_p": {
+            "type": "number",
+            "maximum": 0.15,
+            "minimum": 0.01,
+            "title": "Dp Over P",
+            "default": 0.04
+          },
+          "T_max": {
+            "type": "number",
+            "maximum": 2200.0,
+            "minimum": 800.0,
+            "title": "T Max",
+            "default": 1500.0
+          },
+          "eta_noz": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.6,
+            "title": "Eta Noz",
+            "default": 0.98
+          },
+          "throttle_pos": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.2,
+            "title": "Throttle Pos",
+            "default": 1.0
+          }
+        },
+        "type": "object",
+        "title": "OffDesignSingleRequest"
+      },
+      "OffDesignSweepRequest": {
+        "properties": {
+          "sweep_param": {
+            "type": "string",
+            "enum": [
+              "speed",
+              "altitude",
+              "mach"
+            ],
+            "title": "Sweep Param",
+            "default": "speed"
+          },
+          "n_steps": {
+            "type": "integer",
+            "maximum": 40.0,
+            "minimum": 3.0,
+            "title": "N Steps",
+            "default": 15
+          },
+          "speed_start": {
+            "type": "number",
+            "maximum": 1.1,
+            "minimum": 0.5,
+            "title": "Speed Start",
+            "default": 0.55
+          },
+          "speed_end": {
+            "type": "number",
+            "maximum": 1.1,
+            "minimum": 0.5,
+            "title": "Speed End",
+            "default": 1.05
+          },
+          "fixed_speed": {
+            "type": "number",
+            "maximum": 1.1,
+            "minimum": 0.5,
+            "title": "Fixed Speed",
+            "default": 1.0
+          },
+          "alt_start": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt Start",
+            "default": 0.0
+          },
+          "alt_end": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt End",
+            "default": 40000.0
+          },
+          "fixed_alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Fixed Alt",
+            "default": 35000.0
+          },
+          "mach_start": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Mach Start",
+            "default": 0.0
+          },
+          "mach_end": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Mach End",
+            "default": 0.85
+          },
+          "fixed_mach": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Fixed Mach",
+            "default": 0.8
+          },
+          "cpr_des": {
+            "type": "number",
+            "maximum": 35.0,
+            "minimum": 2.0,
+            "title": "Cpr Des",
+            "default": 8.0
+          },
+          "eta_c_des": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta C Des",
+            "default": 0.85
+          },
+          "mdot_corr_des": {
+            "type": "number",
+            "maximum": 200.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Mdot Corr Des",
+            "default": 20.0
+          },
+          "A8": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "A8"
+          },
+          "des_alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Des Alt",
+            "default": 35000.0
+          },
+          "des_mach": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Des Mach",
+            "default": 0.8
+          },
+          "eta_i": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.7,
+            "title": "Eta I",
+            "default": 0.98
+          },
+          "eta_t": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta T",
+            "default": 0.88
+          },
+          "mech_loss": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Mech Loss",
+            "default": 0.99
+          },
+          "eta_b": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta B",
+            "default": 0.99
+          },
+          "dp_over_p": {
+            "type": "number",
+            "maximum": 0.15,
+            "minimum": 0.01,
+            "title": "Dp Over P",
+            "default": 0.04
+          },
+          "T_max": {
+            "type": "number",
+            "maximum": 2200.0,
+            "minimum": 800.0,
+            "title": "T Max",
+            "default": 1500.0
+          },
+          "eta_noz": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.6,
+            "title": "Eta Noz",
+            "default": 0.98
+          },
+          "throttle_pos": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.2,
+            "title": "Throttle Pos",
+            "default": 1.0
+          }
+        },
+        "type": "object",
+        "title": "OffDesignSweepRequest"
+      },
+      "PhysicsTurbofanParam": {
+        "properties": {
+          "A1": {
+            "type": "number",
+            "title": "A1",
+            "default": 1.5
+          },
+          "A2": {
+            "type": "number",
+            "title": "A2",
+            "default": 1.5
+          },
+          "fan_n_stages": {
+            "type": "integer",
+            "title": "Fan N Stages",
+            "default": 1
+          },
+          "hpc_n_stages": {
+            "type": "integer",
+            "title": "Hpc N Stages",
+            "default": 9
+          },
+          "hpt_n_stages": {
+            "type": "integer",
+            "title": "Hpt N Stages",
+            "default": 1
+          },
+          "lpt_n_stages": {
+            "type": "integer",
+            "title": "Lpt N Stages",
+            "default": 3
+          },
+          "A8": {
+            "type": "number",
+            "title": "A8",
+            "default": 0.15
+          },
+          "BPR": {
+            "type": "number",
+            "title": "Bpr",
+            "default": 5.0
+          }
+        },
+        "type": "object",
+        "title": "PhysicsTurbofanParam"
+      },
+      "PhysicsTurbofanPerf": {
+        "properties": {
+          "eta_i": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta I",
+            "default": 0.98
+          },
+          "FPR": {
+            "type": "number",
+            "exclusiveMinimum": 1.0,
+            "title": "Fpr",
+            "default": 1.6
+          },
+          "eta_fan": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta Fan",
+            "default": 0.89
+          },
+          "CPR": {
+            "type": "number",
+            "exclusiveMinimum": 1.0,
+            "title": "Cpr",
+            "default": 18.0
+          },
+          "eta_hpc": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta Hpc",
+            "default": 0.85
+          },
+          "eta_b": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta B",
+            "default": 0.99
+          },
+          "dp_over_p": {
+            "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "Dp Over P",
+            "default": 0.05
+          },
+          "max_f": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max F",
+            "default": 0.3
+          },
+          "min_f": {
+            "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min F",
+            "default": 0.05
+          },
+          "V_nominal": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "V Nominal",
+            "default": 30.0
+          },
+          "T_max": {
+            "type": "number",
+            "exclusiveMinimum": 300.0,
+            "title": "T Max",
+            "default": 1500.0
+          },
+          "eta_hpt": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta Hpt",
+            "default": 0.88
+          },
+          "eta_lpt": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta Lpt",
+            "default": 0.9
+          },
+          "mech_loss_hp": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Mech Loss Hp",
+            "default": 0.99
+          },
+          "mech_loss_lp": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Mech Loss Lp",
+            "default": 0.99
+          },
+          "cooling_bleed_frac": {
+            "type": "number",
+            "maximum": 0.2,
+            "minimum": 0.0,
+            "title": "Cooling Bleed Frac",
+            "default": 0.0
+          },
+          "gear_ratio": {
+            "type": "number",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Gear Ratio",
+            "default": 1.0
+          },
+          "eta_gearbox": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.9,
+            "title": "Eta Gearbox",
+            "default": 0.99
+          },
+          "eta_noz_core": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta Noz Core",
+            "default": 0.98
+          },
+          "eta_noz_byp": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta Noz Byp",
+            "default": 0.98
+          }
+        },
+        "type": "object",
+        "title": "PhysicsTurbofanPerf"
+      },
+      "PhysicsTurbofanSingleRequest": {
+        "properties": {
+          "eng_param": {
+            "$ref": "#/components/schemas/PhysicsTurbofanParam"
+          },
+          "eng_perf": {
+            "$ref": "#/components/schemas/PhysicsTurbofanPerf"
+          },
+          "throttle_pos": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle Pos",
+            "default": 1.0
+          },
+          "alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt",
+            "default": 35000.0
+          },
+          "M_i": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "M I",
+            "default": 0.8
+          },
+          "mdot_core_guess": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Mdot Core Guess",
+            "default": 20.0
+          }
+        },
+        "type": "object",
+        "title": "PhysicsTurbofanSingleRequest"
+      },
+      "PhysicsTurbofanSweepRequest": {
+        "properties": {
+          "eng_param": {
+            "$ref": "#/components/schemas/PhysicsTurbofanParam"
+          },
+          "eng_perf": {
+            "$ref": "#/components/schemas/PhysicsTurbofanPerf"
+          },
+          "throttle_pos": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle Pos",
+            "default": 1.0
+          },
+          "sweep_param": {
+            "type": "string",
+            "enum": [
+              "altitude",
+              "mach",
+              "throttle",
+              "bpr",
+              "cpr",
+              "fpr"
+            ],
+            "title": "Sweep Param",
+            "default": "altitude"
+          },
+          "alt_start": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt Start",
+            "default": 0.0
+          },
+          "alt_end": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt End",
+            "default": 40000.0
+          },
+          "mach_start": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "Mach Start",
+            "default": 0.0
+          },
+          "mach_end": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "Mach End",
+            "default": 0.8
+          },
+          "throttle_start": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle Start",
+            "default": 0.5
+          },
+          "throttle_end": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle End",
+            "default": 1.0
+          },
+          "bpr_start": {
+            "type": "number",
+            "maximum": 15.0,
+            "minimum": 0.1,
+            "title": "Bpr Start",
+            "default": 3.0
+          },
+          "bpr_end": {
+            "type": "number",
+            "maximum": 15.0,
+            "minimum": 0.1,
+            "title": "Bpr End",
+            "default": 8.0
+          },
+          "cpr_start": {
+            "type": "number",
+            "maximum": 40.0,
+            "minimum": 1.0,
+            "title": "Cpr Start",
+            "default": 10.0
+          },
+          "cpr_end": {
+            "type": "number",
+            "maximum": 40.0,
+            "minimum": 1.0,
+            "title": "Cpr End",
+            "default": 25.0
+          },
+          "fpr_start": {
+            "type": "number",
+            "maximum": 3.0,
+            "minimum": 1.05,
+            "title": "Fpr Start",
+            "default": 1.2
+          },
+          "fpr_end": {
+            "type": "number",
+            "maximum": 3.0,
+            "minimum": 1.05,
+            "title": "Fpr End",
+            "default": 2.0
+          },
+          "n_steps": {
+            "type": "integer",
+            "maximum": 40.0,
+            "minimum": 3.0,
+            "title": "N Steps",
+            "description": "Number of points in sweep",
+            "default": 10
+          },
+          "fixed_alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Fixed Alt",
+            "default": 35000.0
+          },
+          "fixed_mach": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "Fixed Mach",
+            "default": 0.8
+          },
+          "fixed_throttle": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Fixed Throttle",
+            "default": 1.0
+          },
+          "mdot_core_guess": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Mdot Core Guess",
+            "default": 20.0
+          }
+        },
+        "type": "object",
+        "title": "PhysicsTurbofanSweepRequest"
+      },
+      "SurrogatePredictRequest": {
+        "properties": {
+          "alt_ft": {
+            "type": "number",
+            "maximum": 45000.0,
+            "minimum": 0.0,
+            "title": "Alt Ft",
+            "default": 35000.0
+          },
+          "mach": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Mach",
+            "default": 0.8
+          },
+          "throttle": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.2,
+            "title": "Throttle",
+            "default": 1.0
+          },
+          "CPR": {
+            "type": "number",
+            "maximum": 30.0,
+            "minimum": 4.0,
+            "title": "Cpr",
+            "default": 14.0
+          },
+          "TIT_K": {
+            "type": "number",
+            "maximum": 1850.0,
+            "minimum": 1100.0,
+            "title": "Tit K",
+            "default": 1450.0
+          }
+        },
+        "type": "object",
+        "title": "SurrogatePredictRequest"
+      },
+      "SurrogateSurfaceRequest": {
+        "properties": {
+          "x_param": {
+            "type": "string",
+            "title": "X Param",
+            "default": "CPR"
+          },
+          "y_param": {
+            "type": "string",
+            "title": "Y Param",
+            "default": "TIT_K"
+          },
+          "x_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X Min"
+          },
+          "x_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X Max"
+          },
+          "n_points": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 5.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Points",
+            "default": 30
+          },
+          "fixed_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed Params"
+          },
+          "fixed_alt": {
+            "type": "number",
+            "maximum": 45000.0,
+            "minimum": 0.0,
+            "title": "Fixed Alt",
+            "default": 35000.0
+          },
+          "fixed_mach": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Fixed Mach",
+            "default": 0.8
+          },
+          "fixed_throttle": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.2,
+            "title": "Fixed Throttle",
+            "default": 1.0
+          },
+          "fixed_cpr": {
+            "type": "number",
+            "maximum": 35.0,
+            "minimum": 4.0,
+            "title": "Fixed Cpr",
+            "default": 14.0
+          },
+          "fixed_tit": {
+            "type": "number",
+            "maximum": 1850.0,
+            "minimum": 1100.0,
+            "title": "Fixed Tit",
+            "default": 1450.0
+          },
+          "grid_res": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 5.0,
+            "title": "Grid Res",
+            "default": 15
+          }
+        },
+        "type": "object",
+        "title": "SurrogateSurfaceRequest"
+      },
+      "TurbofanSingleRequest": {
+        "properties": {
+          "alt": {
+            "type": "number",
+            "maximum": 42000.0,
+            "minimum": 0.0,
+            "title": "Alt",
+            "description": "Altitude [ft]",
+            "default": 35000.0
+          },
+          "MN": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Mn",
+            "description": "Mach number",
+            "default": 0.8
+          },
+          "PC": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.55,
+            "title": "Pc",
+            "description": "Power code (0.55\u20131.0)",
+            "default": 1.0
+          }
+        },
+        "type": "object",
+        "title": "TurbofanSingleRequest"
+      },
+      "TurbofanSweepRequest": {
+        "properties": {
+          "sweep_param": {
+            "type": "string",
+            "enum": [
+              "altitude",
+              "mach",
+              "throttle"
+            ],
+            "title": "Sweep Param",
+            "default": "altitude"
+          },
+          "alt_start": {
+            "type": "number",
+            "maximum": 42000.0,
+            "minimum": 0.0,
+            "title": "Alt Start",
+            "default": 0.0
+          },
+          "alt_end": {
+            "type": "number",
+            "maximum": 42000.0,
+            "minimum": 0.0,
+            "title": "Alt End",
+            "default": 40000.0
+          },
+          "mach_start": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Mach Start",
+            "default": 0.0
+          },
+          "mach_end": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Mach End",
+            "default": 0.8
+          },
+          "pc_start": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.55,
+            "title": "Pc Start",
+            "default": 0.55
+          },
+          "pc_end": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.55,
+            "title": "Pc End",
+            "default": 1.0
+          },
+          "n_steps": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 3.0,
+            "title": "N Steps",
+            "default": 20
+          },
+          "fixed_alt": {
+            "type": "number",
+            "maximum": 42000.0,
+            "minimum": 0.0,
+            "title": "Fixed Alt",
+            "default": 35000.0
+          },
+          "fixed_mach": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Fixed Mach",
+            "default": 0.8
+          },
+          "fixed_pc": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.55,
+            "title": "Fixed Pc",
+            "default": 1.0
+          }
+        },
+        "type": "object",
+        "title": "TurbofanSweepRequest"
+      },
+      "TurbojetEngineParam": {
+        "properties": {
+          "A1": {
+            "type": "number",
+            "title": "A1",
+            "description": "Inlet capture area [m\u00b2]",
+            "default": 0.4
+          },
+          "A2": {
+            "type": "number",
+            "title": "A2",
+            "description": "Compressor face area [m\u00b2]",
+            "default": 0.38
+          },
+          "comp_n_stages": {
+            "type": "integer",
+            "title": "Comp N Stages",
+            "description": "Number of compressor stages",
+            "default": 10
+          },
+          "turb_n_stages": {
+            "type": "integer",
+            "title": "Turb N Stages",
+            "description": "Number of turbine stages",
+            "default": 2
+          },
+          "A8": {
+            "type": "number",
+            "title": "A8",
+            "description": "Nozzle throat area [m\u00b2]",
+            "default": 0.28
+          }
+        },
+        "type": "object",
+        "title": "TurbojetEngineParam"
+      },
+      "TurbojetEnginePerf": {
+        "properties": {
+          "eta_i": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta I",
+            "description": "Inlet adiabatic efficiency (0\u20131]",
+            "default": 0.98
+          },
+          "CPR": {
+            "type": "number",
+            "exclusiveMinimum": 1.0,
+            "title": "Cpr",
+            "description": "Compressor pressure ratio (>1)",
+            "default": 12.0
+          },
+          "eta_c": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta C",
+            "description": "Compressor isentropic efficiency (0\u20131]",
+            "default": 0.8
+          },
+          "eta_b": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta B",
+            "description": "Combustor efficiency (0\u20131]",
+            "default": 0.9
+          },
+          "dp_over_p": {
+            "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "Dp Over P",
+            "description": "Combustor pressure loss fraction [0\u20131)",
+            "default": 0.06
+          },
+          "max_f": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max F",
+            "description": "Max fuel fraction (stoich)",
+            "default": 0.3
+          },
+          "min_f": {
+            "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min F",
+            "description": "Min fuel fraction (stoich)",
+            "default": 0.05
+          },
+          "V_nominal": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "V Nominal",
+            "description": "Combustor nominal flow velocity [m/s]",
+            "default": 45.0
+          },
+          "T_max": {
+            "type": "number",
+            "exclusiveMinimum": 300.0,
+            "title": "T Max",
+            "description": "Max combustor temperature (TIT limit) [K]",
+            "default": 1450.0
+          },
+          "eta_t": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta T",
+            "description": "Turbine isentropic efficiency (0\u20131]",
+            "default": 0.8
+          },
+          "mech_loss": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Mech Loss",
+            "description": "Mechanical efficiency (0\u20131]",
+            "default": 0.99
+          },
+          "eta_noz": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Eta Noz",
+            "description": "Nozzle adiabatic efficiency (0\u20131]",
+            "default": 0.8
+          }
+        },
+        "type": "object",
+        "title": "TurbojetEnginePerf"
+      },
+      "TurbojetLTORequest": {
+        "properties": {
+          "eng_param": {
+            "$ref": "#/components/schemas/TurbojetEngineParam"
+          },
+          "eng_perf": {
+            "$ref": "#/components/schemas/TurbojetEnginePerf"
+          },
+          "alt": {
+            "type": "number",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Alt",
+            "description": "Field elevation [ft]",
+            "default": 0.0
+          },
+          "M_i": {
+            "type": "number",
+            "maximum": 0.3,
+            "minimum": 0.0,
+            "title": "M I",
+            "description": "Runway/taxi Mach",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "TurbojetLTORequest"
+      },
+      "TurbojetSingleRequest": {
+        "properties": {
+          "eng_param": {
+            "$ref": "#/components/schemas/TurbojetEngineParam"
+          },
+          "eng_perf": {
+            "$ref": "#/components/schemas/TurbojetEnginePerf"
+          },
+          "throttle_pos": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle Pos",
+            "description": "Throttle position (0.1\u20131.0)",
+            "default": 1.0
+          },
+          "alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt",
+            "description": "Altitude [ft]",
+            "default": 35000.0
+          },
+          "M_i": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "M I",
+            "description": "Mach number",
+            "default": 0.8
+          },
+          "mdot_guess": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Mdot Guess",
+            "description": "Initial mass-flow guess [kg/s]",
+            "default": 20.0
+          }
+        },
+        "type": "object",
+        "title": "TurbojetSingleRequest"
+      },
+      "TurbojetSweepRequest": {
+        "properties": {
+          "eng_param": {
+            "$ref": "#/components/schemas/TurbojetEngineParam"
+          },
+          "eng_perf": {
+            "$ref": "#/components/schemas/TurbojetEnginePerf"
+          },
+          "throttle_pos": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle Pos",
+            "default": 1.0
+          },
+          "sweep_param": {
+            "type": "string",
+            "enum": [
+              "altitude",
+              "mach",
+              "throttle"
+            ],
+            "title": "Sweep Param",
+            "default": "altitude"
+          },
+          "alt_start": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt Start",
+            "default": 0.0
+          },
+          "alt_end": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Alt End",
+            "default": 40000.0
+          },
+          "mach_start": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "Mach Start",
+            "default": 0.0
+          },
+          "mach_end": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "Mach End",
+            "default": 0.8
+          },
+          "throttle_start": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle Start",
+            "default": 0.5
+          },
+          "throttle_end": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.1,
+            "title": "Throttle End",
+            "default": 1.0
+          },
+          "n_steps": {
+            "type": "integer",
+            "maximum": 40.0,
+            "minimum": 3.0,
+            "title": "N Steps",
+            "description": "Number of points in sweep",
+            "default": 15
+          },
+          "fixed_alt": {
+            "type": "number",
+            "maximum": 65000.0,
+            "minimum": 0.0,
+            "title": "Fixed Alt",
+            "default": 35000.0
+          },
+          "fixed_mach": {
+            "type": "number",
+            "maximum": 2.2,
+            "minimum": 0.0,
+            "title": "Fixed Mach",
+            "default": 0.8
+          },
+          "mdot_guess": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Mdot Guess",
+            "default": 20.0
+          }
+        },
+        "type": "object",
+        "title": "TurbojetSweepRequest"
+      },
+      "TurbopropSingleRequest": {
+        "properties": {
+          "alt": {
+            "type": "number",
+            "maximum": 45000.0,
+            "minimum": 0.0,
+            "title": "Alt",
+            "default": 15000.0
+          },
+          "mach": {
+            "type": "number",
+            "maximum": 0.75,
+            "minimum": 0.0,
+            "title": "Mach",
+            "default": 0.4
+          },
+          "CPR": {
+            "type": "number",
+            "maximum": 30.0,
+            "minimum": 3.0,
+            "title": "Cpr",
+            "default": 12.0
+          },
+          "TIT": {
+            "type": "number",
+            "maximum": 1900.0,
+            "minimum": 900.0,
+            "title": "Tit",
+            "default": 1400.0
+          },
+          "mdot_air": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Mdot Air",
+            "default": 10.0
+          },
+          "A8": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.01,
+            "title": "A8",
+            "default": 0.08
+          },
+          "prop_diameter_m": {
+            "type": "number",
+            "maximum": 6.0,
+            "minimum": 0.5,
+            "title": "Prop Diameter M",
+            "default": 3.2
+          },
+          "prop_rpm": {
+            "type": "number",
+            "maximum": 3000.0,
+            "minimum": 300.0,
+            "title": "Prop Rpm",
+            "default": 1200.0
+          },
+          "eta_i": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta I",
+            "default": 0.98
+          },
+          "eta_c": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta C",
+            "default": 0.85
+          },
+          "eta_b": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta B",
+            "default": 0.99
+          },
+          "dp_over_p": {
+            "type": "number",
+            "maximum": 0.12,
+            "minimum": 0.01,
+            "title": "Dp Over P",
+            "default": 0.04
+          },
+          "eta_hpt": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta Hpt",
+            "default": 0.89
+          },
+          "eta_pt": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.6,
+            "title": "Eta Pt",
+            "default": 0.9
+          },
+          "eta_mech_core": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta Mech Core",
+            "default": 0.99
+          },
+          "eta_mech_pt": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta Mech Pt",
+            "default": 0.98
+          },
+          "eta_gearbox": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta Gearbox",
+            "default": 0.985
+          },
+          "eta_noz": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Eta Noz",
+            "default": 0.95
+          },
+          "prop_eff_max": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.5,
+            "title": "Prop Eff Max",
+            "default": 0.84
+          }
+        },
+        "type": "object",
+        "title": "TurbopropSingleRequest"
+      },
+      "TurbopropSweepRequest": {
+        "properties": {
+          "sweep_param": {
+            "type": "string",
+            "enum": [
+              "power",
+              "altitude",
+              "mach",
+              "cpr"
+            ],
+            "title": "Sweep Param",
+            "default": "power"
+          },
+          "n_steps": {
+            "type": "integer",
+            "maximum": 25.0,
+            "minimum": 3.0,
+            "title": "N Steps",
+            "default": 10
+          },
+          "alt_fixed": {
+            "type": "number",
+            "maximum": 45000.0,
+            "minimum": 0.0,
+            "title": "Alt Fixed",
+            "default": 15000.0
+          },
+          "mach_fixed": {
+            "type": "number",
+            "maximum": 0.75,
+            "minimum": 0.0,
+            "title": "Mach Fixed",
+            "default": 0.4
+          },
+          "cpr_fixed": {
+            "type": "number",
+            "maximum": 30.0,
+            "minimum": 3.0,
+            "title": "Cpr Fixed",
+            "default": 12.0
+          },
+          "tit_fixed": {
+            "type": "number",
+            "maximum": 1900.0,
+            "minimum": 900.0,
+            "title": "Tit Fixed",
+            "default": 1400.0
+          }
+        },
+        "type": "object",
+        "title": "TurbopropSweepRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
