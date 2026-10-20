@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AETHER-X // AEROSPACE PROPULSION & MISSION ANALYSIS SUITE (v0.6 OBSIDIAN BLUEPRINT)</title>
+  <title>AETHER-X // AEROSPACE PROPULSION & MISSION ANALYSIS SUITE (v0.5.0 OBSIDIAN BLUEPRINT)</title>
 
   <!-- Typography: Inter, JetBrains Mono & Share Tech Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1358,7 +1358,7 @@
 
       const iters = metadata?.iterations ?? iterations ?? 1;
       const resNorm = metadata?.residual_norm ?? residual ?? 0.0;
-      const fid = metadata?.fidelity_level || fidelity || "NASA-9 REAL GAS";
+      const fid = metadata?.fidelity_level || fidelity || "NASA REAL-GAS KERNEL";
       const warnList = metadata?.warnings || warnings || [];
       const clamped = metadata?.clamped_inputs || clampedInputs || {};
 
@@ -1828,7 +1828,7 @@
               <div className="panel-card-header">
                 <span>[CONTROLS] TURBOJET AEROTHERMODYNAMICS</span>
                 <span className="tech-tag info">
-                  VALIDATION: TIER A/B/C [NASA-9 REAL GAS]
+                  VALIDATION: TIER A/B/C [NASA REAL-GAS STANDARD]
                 </span>
               </div>
               <div className="panel-card-body">
@@ -1846,7 +1846,7 @@
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
-            <SolverStatusStrip metadata={res?.metadata} fidelity="NASA-9 Real Gas" />
+            <SolverStatusStrip metadata={res?.metadata} fidelity="NASA Real-Gas Kernel" />
 
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
@@ -1857,7 +1857,7 @@
 
             {/* Top KPI Ribbon (All Numbers Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="NASA-9 Expansion" />
+              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="Real Gas Expansion" />
               <HudKpi label="FUEL MASS FLOW" value={wf_kgs != null ? wf_kgs : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow" decimals={4} sub="LHV Energy Balance" />
               <HudKpi label="SPECIFIC FUEL CONS (TSFC)" value={tsfc != null ? tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="Metric Cycle Spec" />
               <HudKpi label="AIR MASS FLOW" value={mdot != null ? mdot : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Inlet Capture Face" />
@@ -2067,7 +2067,7 @@
               <div className="panel-card">
                 <div className="panel-card-header">
                   <span>[THERMO-CYCLE] DUAL-SPOOL T-s DIAGRAM // CORE & BYPASS EXPANSIONS</span>
-                  <span className="tech-tag optimal">NASA-9 REAL GAS INTEGRATION</span>
+                  <span className="tech-tag optimal">NASA REAL-GAS KERNEL</span>
                 </div>
                 <div className="panel-card-body">
                   <BraytonTsChart
@@ -3708,7 +3708,7 @@
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
-            <SolverStatusStrip metadata={res?.metadata} fidelity="Segmented Numerical Integrator" />
+            <SolverStatusStrip metadata={res?.metadata} fidelity="Numerical Trajectory Solver" />
 
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
@@ -4868,9 +4868,9 @@
 
             {/* 26px Bottom Telemetry Footer */}
             <footer className="app-footer">
-              <div>ENGINE KERNEL: FIRST-PRINCIPLES NASA-9 REAL GAS + NUMPY VECTORIZED</div>
-              <div>MISSION INTEGRATOR: SEGMENTED NUMERICAL INTEGRATOR</div>
-              <div>AETHER-X BUILD v0.6 OBSIDIAN</div>
+              <div>ENGINE KERNEL: NASA REAL-GAS THERMODYNAMIC STANDARD</div>
+              <div>MISSION INTEGRATOR: NUMERICAL KINEMATIC TRAJECTORY SOLVER</div>
+              <div>AETHER-X BUILD v0.5.0 OBSIDIAN</div>
             </footer>
           </div>
         </UnitContext.Provider>

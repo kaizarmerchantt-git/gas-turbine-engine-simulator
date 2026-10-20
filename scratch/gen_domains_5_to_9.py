@@ -1061,7 +1061,7 @@ DOMAINS_5_TO_9 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
-            <SolverStatusStrip metadata={res?.metadata} fidelity="Segmented Numerical Integrator" />
+            <SolverStatusStrip metadata={res?.metadata} fidelity="Numerical Trajectory Solver" />
 
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>

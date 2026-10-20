@@ -186,9 +186,9 @@ APP_MAIN = """
 
             {/* 26px Bottom Telemetry Footer */}
             <footer className="app-footer">
-              <div>ENGINE KERNEL: FIRST-PRINCIPLES NASA-9 REAL GAS + NUMPY VECTORIZED</div>
-              <div>MISSION INTEGRATOR: SEGMENTED NUMERICAL INTEGRATOR</div>
-              <div>AETHER-X BUILD v0.6 OBSIDIAN</div>
+              <div>ENGINE KERNEL: NASA REAL-GAS THERMODYNAMIC STANDARD</div>
+              <div>MISSION INTEGRATOR: NUMERICAL KINEMATIC TRAJECTORY SOLVER</div>
+              <div>AETHER-X BUILD v0.5.0 OBSIDIAN</div>
             </footer>
           </div>
         </UnitContext.Provider>

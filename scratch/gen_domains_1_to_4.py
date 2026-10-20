@@ -111,7 +111,7 @@ DOMAINS_1_TO_4 = """
               <div className="panel-card-header">
                 <span>[CONTROLS] TURBOJET AEROTHERMODYNAMICS</span>
                 <span className="tech-tag info">
-                  VALIDATION: TIER A/B/C [NASA-9 REAL GAS]
+                  VALIDATION: TIER A/B/C [NASA REAL-GAS STANDARD]
                 </span>
               </div>
               <div className="panel-card-body">
@@ -129,7 +129,7 @@ DOMAINS_1_TO_4 = """
 
           {/* Right Mainstage */}
           <main className="app-mainstage">
-            <SolverStatusStrip metadata={res?.metadata} fidelity="NASA-9 Real Gas" />
+            <SolverStatusStrip metadata={res?.metadata} fidelity="NASA Real-Gas Kernel" />
 
             {error && (
               <div className="panel-card" style={{ borderColor: "var(--accent-crimson)" }}>
@@ -140,7 +140,7 @@ DOMAINS_1_TO_4 = """
 
             {/* Top KPI Ribbon (All Numbers Stark Titanium White) */}
             <div className="kpi-grid">
-              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="NASA-9 Expansion" />
+              <HudKpi label="NET THRUST (Fn)" value={fn_kN != null ? fn_kN : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="thrust" sub="Real Gas Expansion" />
               <HudKpi label="FUEL MASS FLOW" value={wf_kgs != null ? wf_kgs : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="fuelflow" decimals={4} sub="LHV Energy Balance" />
               <HudKpi label="SPECIFIC FUEL CONS (TSFC)" value={tsfc != null ? tsfc : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="tsfc" decimals={2} sub="Metric Cycle Spec" />
               <HudKpi label="AIR MASS FLOW" value={mdot != null ? mdot : (loading ? "COMPUTING..." : "NOT COMPUTED")} unitType="massflow" decimals={1} sub="Inlet Capture Face" />
@@ -350,7 +350,7 @@ DOMAINS_1_TO_4 = """
               <div className="panel-card">
                 <div className="panel-card-header">
                   <span>[THERMO-CYCLE] DUAL-SPOOL T-s DIAGRAM // CORE & BYPASS EXPANSIONS</span>
-                  <span className="tech-tag optimal">NASA-9 REAL GAS INTEGRATION</span>
+                  <span className="tech-tag optimal">NASA REAL-GAS KERNEL</span>
                 </div>
                 <div className="panel-card-body">
                   <BraytonTsChart

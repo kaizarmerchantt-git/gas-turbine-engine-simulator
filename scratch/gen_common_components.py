@@ -624,7 +624,7 @@ COMMON_COMPONENTS = """
 
       const iters = metadata?.iterations ?? iterations ?? 1;
       const resNorm = metadata?.residual_norm ?? residual ?? 0.0;
-      const fid = metadata?.fidelity_level || fidelity || "NASA-9 REAL GAS";
+      const fid = metadata?.fidelity_level || fidelity || "NASA REAL-GAS KERNEL";
       const warnList = metadata?.warnings || warnings || [];
       const clamped = metadata?.clamped_inputs || clampedInputs || {};
 

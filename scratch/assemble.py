@@ -24,7 +24,7 @@ def assemble():
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AETHER-X // AEROSPACE PROPULSION & MISSION ANALYSIS SUITE (v0.6 OBSIDIAN BLUEPRINT)</title>
+  <title>AETHER-X // AEROSPACE PROPULSION & MISSION ANALYSIS SUITE (v0.5.0 OBSIDIAN BLUEPRINT)</title>
 
   <!-- Typography: Inter, JetBrains Mono & Share Tech Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
