@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/AETHER-X_logo.png" alt="AETHER-X Logo" width="220" />
+</p>
+
 # AETHER-X: Gas Turbine Engine Simulator (v0.5.0)
 
 Interactive 0D thermodynamic gas turbine engine cycle simulator and flight mission analysis application.
