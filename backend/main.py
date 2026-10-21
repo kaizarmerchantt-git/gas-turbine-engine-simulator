@@ -735,14 +735,10 @@ class HybridSweepRequest(BaseModel):
 @app.get("/")
 def root(request: Request):
     accept = request.headers.get("accept", "")
-    v05_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index_v0.5.html")
-    legacy_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    index_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
     # If a browser requests the root URL, serve the interactive Obsidian Blueprint UI
-    if "text/html" in accept:
-        if os.path.exists(v05_path):
-            return FileResponse(v05_path)
-        if os.path.exists(legacy_path):
-            return FileResponse(legacy_path)
+    if "text/html" in accept and os.path.exists(index_path):
+        return FileResponse(index_path)
     # Default / API JSON response
     return {
         "status": "online",
@@ -762,40 +758,19 @@ def root(request: Request):
         ],
         "docs":   "/docs",
         "app":    "/app",
-        "v0.5":   "/v0.5",
-        "legacy": "/legacy",
     }
 
 
 @app.get("/app")
-def serve_app():
-    """Direct route to serve the interactive web simulator frontend (v0.5 Obsidian Blueprint)."""
-    v05_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index_v0.5.html")
-    if os.path.exists(v05_path):
-        return FileResponse(v05_path)
-    legacy_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
-    if os.path.exists(legacy_path):
-        return FileResponse(legacy_path)
-    raise HTTPException(status_code=404, detail="frontend/index_v0.5.html not found")
-
-
-@app.get("/legacy")
-def serve_legacy():
-    """Route to serve the legacy v0.4 frontend."""
-    legacy_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
-    if os.path.exists(legacy_path):
-        return FileResponse(legacy_path)
-    raise HTTPException(status_code=404, detail="frontend/index.html not found")
-
-
-@app.get("/v0.5")
 @app.get("/index.html")
-def serve_v05():
-    """Direct route to serve the v0.5 Obsidian Vector Blueprint UI."""
-    v05_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index_v0.5.html")
-    if os.path.exists(v05_path):
-        return FileResponse(v05_path)
-    raise HTTPException(status_code=404, detail="frontend/index_v0.5.html not found")
+@app.get("/v0.5")
+@app.get("/legacy")
+def serve_app():
+    """Direct route to serve the interactive web simulator frontend."""
+    index_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="frontend/index.html not found")
 
 
 @app.get("/api/status")

@@ -167,3 +167,26 @@ graphify-out/
 session_*.json
 local_run_*.txt
 
+
+# Internal engineering reports & session logs
+AETHER-X_PROJECT_REPORT.md
+SESSION_LOG.md
+NEXT_SESSION_PROMPT.md
+SETUP_GUIDE.md
+Scope
+README_Emissions.md
+docs/VALIDATION_REPORT.md
+
+# Verification suites & test benchmarks
+backend/test_*.py
+verify_*.py
+run_all_tests.py
+data/reference/
+
+# UI generation scratch scripts
+scratch/
+
+# Duplicate / legacy frontend variants
+frontend/index_v0.5.html
+frontend/index_v0.4_legacy.html
+frontend/index_v1_archive.html

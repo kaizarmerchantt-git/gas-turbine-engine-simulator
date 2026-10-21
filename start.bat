@@ -70,8 +70,7 @@ if errorlevel 1 (
 REM -- Launch Browser Synchronizer in Background ------------------------------
 echo.
 echo Starting FastAPI backend on http://localhost:8000 ...
-echo   Web HUD:     http://localhost:8000/ (v0.5 Obsidian Blueprint)
-echo   Legacy HUD:  http://localhost:8000/legacy (v0.4 Reference)
+echo   Web HUD:     http://localhost:8000/
 echo   API Docs:    http://localhost:8000/docs
 echo.
 echo Press Ctrl+C in this window or run stop.bat in another terminal to stop the server.
