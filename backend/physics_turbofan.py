@@ -48,6 +48,9 @@ DEFAULT_TF_PERF: dict = {
     "eta_lpt":   0.90,    # LPT isentropic efficiency
     "mech_loss_hp": 0.99, # mechanical efficiency HP spool
     "mech_loss_lp": 0.99, # mechanical efficiency LP spool
+    "cooling_bleed_frac": 0.0, # cooling bleed fraction (Station 3 -> Station 41)
+    "gear_ratio": 1.0,         # GTF gear ratio (1.0 = direct drive)
+    "eta_gearbox": 0.99,       # GTF reduction gearbox efficiency
     "eta_noz_core": 0.98, # core nozzle adiabatic efficiency
     "eta_noz_byp":  0.98, # bypass nozzle adiabatic efficiency
 }
@@ -128,7 +131,11 @@ def _calc_turbofan_raw(
     mdot_iter   = 0
     max_mdot_iter = 40    # robust convergence across all altitudes and power codes
     conv_error  = False
-    current_mdot_c = mdot_core_guess
+    # Scale initial core flow guess with altitude density ratio to avoid inlet choking on iter 0
+    delta_amb = max(0.05, p_amb / 101325.0)
+    theta_amb = max(0.5, T_amb / 288.15)
+    scale_factor = delta_amb / math.sqrt(theta_amb)
+    current_mdot_c = max(1.5, mdot_core_guess * scale_factor)
     current_mdot_b = current_mdot_c * eng_param["BPR"]
     A18_calc = 0.0
     mdot_noz_c = 0.0
@@ -138,6 +145,15 @@ def _calc_turbofan_raw(
     choked_c = False
     choked_b = False
 
+    b_cool = float(eng_perf.get("cooling_bleed_frac", 0.0))
+    gear_ratio = float(eng_perf.get("gear_ratio", 1.0))
+    eta_gb = float(eng_perf.get("eta_gearbox", 0.99))
+    w_fan_spec = 0.0
+    w_hpc_spec = 0.0
+    w_hpt_spec = 0.0
+    w_lpt_spec = 0.0
+    mdot_turb = 0.0
+    W_c = 0.0
     mixt_frac = 0.0
     phi = 0.0
     T_max_limited = False
@@ -151,20 +167,32 @@ def _calc_turbofan_raw(
             mdot_tot, eng_param["A1"],
             gas["a"], 1.0, M["a"], gas[1]
         )
-        if conv: M[1] = M_calc
+        if conv:
+            M[1] = M_calc
         else:
-            conv_error = True
-            continue   # inlet state invalid — skip all downstream stations
+            if mdot_iter < max_mdot_iter:
+                current_mdot_c *= 0.75
+                mdot_iter += 1
+                continue
+            else:
+                conv_error = True
+                continue   # inlet state invalid — skip all downstream stations
 
         # ── Station 1 → 2 (inlet to fan face) ──────────────────────────────
         M_calc, conv = iterate_inlet(
             mdot_tot, eng_param["A2"],
             gas[1], eng_perf["eta_i"], M[1], gas[2]
         )
-        if conv: M[2] = M_calc
+        if conv:
+            M[2] = M_calc
         else:
-            conv_error = True
-            continue   # skip remaining stations
+            if mdot_iter < max_mdot_iter:
+                current_mdot_c *= 0.75
+                mdot_iter += 1
+                continue
+            else:
+                conv_error = True
+                continue   # skip remaining stations
 
         # ── Station 2 → 13 / 21 (Fan) ──────────────────────────────────────
         _, conv, w_fan_spec = multi_stage_compressor(
@@ -267,11 +295,21 @@ def _calc_turbofan_raw(
         for i in [41, 5, 8]:
             gas[i].TPX = gas[4].T, gas[4].P, gas[4].X
 
+        # ── Secondary Air System (SAS) Bleed & GTF Gear Ratio ──
+        b_cool = float(eng_perf.get("cooling_bleed_frac", 0.0))
+        gear_ratio = float(eng_perf.get("gear_ratio", 1.0))
+        eta_gb = float(eng_perf.get("eta_gearbox", 0.99))
+
         # ── Station 4 → 41 (HPT) ──────────────────────────────────────────────
         # Bug N2 fix: mdot_turb uses correct FAR = Z/(1-Z) for fuel contribution.
         _far_i    = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
-        mdot_turb = current_mdot_c + (_far_i / eng_perf["eta_b"]) * current_mdot_c
-        w_hpt_spec = (w_hpc_spec * current_mdot_c) / (mdot_turb * eng_perf["mech_loss_hp"])
+        mdot_comb = current_mdot_c * (1.0 - b_cool)
+        mdot_fuel_iter = (_far_i / eng_perf["eta_b"]) * mdot_comb
+        mdot_hpt  = mdot_comb + mdot_fuel_iter
+        mdot_bleed = current_mdot_c * b_cool
+        mdot_turb = mdot_hpt + mdot_bleed
+
+        w_hpt_spec = (w_hpc_spec * current_mdot_c) / (mdot_hpt * eng_perf["mech_loss_hp"])
         
         h_avail_hp = gas[4].cp * gas[4].T * eng_perf["eta_hpt"]
         if w_hpt_spec >= h_avail_hp:
@@ -285,8 +323,14 @@ def _calc_turbofan_raw(
         )
         M[41] = M[4]
 
+        # Mix HPT cooling bleed air (from Station 3) back into mainstream gas at Station 41
+        if mdot_bleed > 0.0:
+            h_mixed_41 = (mdot_hpt * gas[41].enthalpy_mass + mdot_bleed * gas[3].enthalpy_mass) / mdot_turb
+            gas[41].HP = h_mixed_41, gas[41].P
+
         # ── Station 41 → 5 (LPT) ───────────────────────────────────────────
-        w_lpt_spec = (w_fan_spec * mdot_tot) / (mdot_turb * eng_perf["mech_loss_lp"])
+        eta_lp_mech = eng_perf["mech_loss_lp"] * (eta_gb if gear_ratio > 1.0 else 1.0)
+        w_lpt_spec = (w_fan_spec * mdot_tot) / (mdot_turb * eta_lp_mech)
         
         h_avail_lp = gas[41].cp * gas[41].T * eng_perf["eta_lpt"]
         if w_lpt_spec >= h_avail_lp:
@@ -327,13 +371,18 @@ def _calc_turbofan_raw(
     # ── Post-loop performance metrics ───────────────────────────────────────
     # Bug T1-A fix: FAR = Z/(1-Z), not Z.
     _far      = mixt_frac / (1.0 - mixt_frac) if mixt_frac < 1.0 else 0.0
-    mdot_fuel = (_far / eng_perf["eta_b"]) * mdot_noz_c
+    mdot_comb_final = mdot_noz_c * (1.0 - b_cool)
+    mdot_fuel = (_far / eng_perf["eta_b"]) * mdot_comb_final
     thrust_c_kN = F_c_spec * mdot_noz_c / 1000.0
     thrust_b_kN = F_b_spec * mdot_noz_b / 1000.0
     thrust_total_kN = thrust_c_kN + thrust_b_kN
     
     BPR = mdot_noz_b / mdot_noz_c if mdot_noz_c > 0 else 0.0
 
+    # TSFC standardisation (SYS-01)
+    tsfc_g_kns = (mdot_fuel * 1000.0 / thrust_total_kN) if (thrust_total_kN > 0 and mdot_fuel > 0) else None
+    tsfc_kg_knh = (mdot_fuel * 3600.0 / thrust_total_kN) if (thrust_total_kN > 0 and mdot_fuel > 0) else None
+    tsfc_lbm_lbfh = (tsfc_g_kns * 0.03530394) if tsfc_g_kns is not None else None
     TSFC = (mdot_fuel / thrust_total_kN) if thrust_total_kN > 0 else None
     SAR  = (V_i / mdot_fuel) if mdot_fuel > 0 else None
 
@@ -436,9 +485,15 @@ def _calc_turbofan_raw(
         "thrust_lbf":         round(thrust_total_kN * 224.809, 1),
         "specific_thrust":    round(sp_thrust, 1),
         "mdot_fuel":          round(mdot_fuel, 5),
-        "TSFC":               round(TSFC * 3600.0, 2) if TSFC is not None else None,
-        "TSFC_lbm":           round(TSFC * 3600.0 * 0.0353, 3) if TSFC is not None else None,
+        "TSFC":               round(tsfc_g_kns, 2) if tsfc_g_kns is not None else None,
+        "TSFC_g_kNs":         round(tsfc_g_kns, 2) if tsfc_g_kns is not None else None,
+        "TSFC_kg_kNh":        round(tsfc_kg_knh, 2) if tsfc_kg_knh is not None else None,
+        "TSFC_lbm_lbfh":      round(tsfc_lbm_lbfh, 3) if tsfc_lbm_lbfh is not None else None,
+        "TSFC_lbm":           round(tsfc_lbm_lbfh, 3) if tsfc_lbm_lbfh is not None else None,
         "SAR":                round(SAR * ISA.ms2kt / 3600.0, 5) if SAR is not None else None,
+        "cooling_bleed_frac": round(b_cool, 3),
+        "cooling_bleed_mdot_kgs": round(mdot_noz_c * b_cool, 3),
+        "gear_ratio":         round(gear_ratio, 2),
         "mdot_core":          round(mdot_noz_c, 2),
         "mdot_byp":           round(current_mdot_b, 2),
         "mdot_air":           round(mdot_noz_c + current_mdot_b, 2),

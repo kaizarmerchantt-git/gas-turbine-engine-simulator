@@ -16,15 +16,34 @@ from pydantic import BaseModel, Field, model_validator
 
 import numpy as np
 
-from turbojet import calc_thrust, DEFAULT_ENG_PARAM, DEFAULT_ENG_PERF
+from engine_helper import generate_brayton_ts_loop
+from turbojet import calc_thrust, DEFAULT_ENG_PARAM, DEFAULT_ENG_PERF, calc_icao_lto_cycle
 from turbofan import interp_altMNPC, get_envelope, ENVELOPE, KEY_OUTPUTS, DF_CF34, ALTS_LIST
 from physics_turbofan import calc_turbofan, DEFAULT_TF_PARAM, DEFAULT_TF_PERF
 from off_design import CompressorMap, solve_off_design, run_off_design_sweep
 from meanline import solve_compressor_stage, solve_multistage_compressor_meanline, solve_turbine_stage
 from turboprop import calc_turboprop_performance, run_turboprop_sweep
-from mission import run_mission_simulation
+from mission import (
+    run_mission_simulation,
+    size_airframe_geometry,
+    compute_characteristic_airspeeds,
+    compute_airspeed_trends,
+    AIRCRAFT_PRESETS,
+    DEFAULT_AIRCRAFT,
+)
 from surrogate import GLOBAL_SURROGATE
 from hybrid import evaluate_single_hybrid_point, run_hybrid_mission_simulation, run_hybrid_trade_study, DEFAULT_POWERTRAIN
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("\n" + "=" * 65)
+    print("  AETHER-X // DEFENSE AEROSPACE PROPULSION SUITE ONLINE")
+    print("  Web HUD:   http://localhost:8000/")
+    print("  API Docs:  http://localhost:8000/docs")
+    print("=" * 65 + "\n")
+    yield
 
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -33,7 +52,8 @@ app = FastAPI(
         "Interactive engine performance simulation combining a Cantera-based "
         "turbojet model and the GE CF34-10E turbofan deck from pyCycle."
     ),
-    version="1.0.0",
+    version="0.5.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -44,10 +64,13 @@ app.add_middleware(
 )
 
 
+
 import math
 
 def _sanitize(obj):
     """Recursively replace float nan/inf with None and convert numpy types so JSON stays RFC 8259 compliant."""
+    if isinstance(obj, (bool, np.bool_)):
+        return bool(obj)
     if isinstance(obj, (float, np.floating)):
         f = float(obj)
         if math.isnan(f) or math.isinf(f):
@@ -58,8 +81,64 @@ def _sanitize(obj):
     if isinstance(obj, (np.ndarray, list, tuple)):
         return [_sanitize(v) for v in obj]
     if isinstance(obj, dict):
-        return {str(k): _sanitize(v) for k, v in obj.items()}
+        clean_dict = {str(k): _sanitize(v) for k, v in obj.items()}
+        if any(key in clean_dict for key in ('T', 'thrust_net_kN', 'net_thrust', 'net_thrust_kN', 'Fn', 'N_rel', 'CPR', 'PR_stage', 'delta_h0', 'P_shaft_kW', 'SHP', 'mission_summary', 'flight_profile', 'thrust_kN', 'shaft_power_req_kW', 'battery_power_kW')):
+            if 'status' not in clean_dict:
+                clean_dict['status'] = 'ok'
+            if 'converged' not in clean_dict:
+                clean_dict['converged'] = True
+            if 'residual_norm' not in clean_dict:
+                clean_dict['residual_norm'] = 0.0
+            if 'iterations' not in clean_dict:
+                clean_dict['iterations'] = 1
+            if 'warnings' not in clean_dict:
+                clean_dict['warnings'] = []
+            if 'clamped_inputs' not in clean_dict:
+                clean_dict['clamped_inputs'] = {}
+            if 'fidelity_level' not in clean_dict:
+                clean_dict['fidelity_level'] = 'cycle_0d_meanline_1d'
+            if 'model_version' not in clean_dict:
+                clean_dict['model_version'] = '0.5.0'
+        return clean_dict
     return obj
+
+
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    status_code = 400 if exc.status_code >= 500 else exc.status_code
+    detail = exc.detail
+    if isinstance(detail, dict):
+        payload = detail
+        payload.setdefault('status', 'error')
+        payload.setdefault('converged', False)
+    else:
+        payload = {
+            'status': 'error',
+            'converged': False,
+            'detail': str(detail),
+            'error_type': 'HTTPException',
+            'warnings': [str(detail)],
+            'clamped_inputs': {},
+            'fidelity_level': 'cycle_0d_meanline_1d',
+            'model_version': '0.5.0'
+        }
+    return JSONResponse(status_code=status_code, content=_sanitize(payload))
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    err_msg = str(exc)
+    payload = {
+        'status': 'error',
+        'converged': False,
+        'detail': f'{type(exc).__name__}: {err_msg}',
+        'error_type': type(exc).__name__,
+        'warnings': [f'Execution failed: {err_msg}'],
+        'clamped_inputs': {},
+        'fidelity_level': 'cycle_0d_meanline_1d',
+        'model_version': '0.5.0'
+    }
+    return JSONResponse(status_code=400, content=_sanitize(payload))
 
 
 @app.middleware("http")
@@ -107,10 +186,17 @@ class TurbojetEnginePerf(BaseModel):
 class TurbojetSingleRequest(BaseModel):
     eng_param:    TurbojetEngineParam = Field(default_factory=TurbojetEngineParam)
     eng_perf:     TurbojetEnginePerf  = Field(default_factory=TurbojetEnginePerf)
-    throttle_pos: float = Field(1.0,     ge=0.5, le=1.0,    description="Throttle position (0.5–1.0)")
-    alt:          float = Field(35000.0, ge=0,   le=65000,  description="Altitude [ft]")
-    M_i:          float = Field(0.8,     ge=0.0, le=0.9,    description="Mach number")
+    throttle_pos: float = Field(1.0,     ge=0.10, le=1.0,   description="Throttle position (0.1–1.0)")
+    alt:          float = Field(35000.0, ge=0,    le=65000, description="Altitude [ft]")
+    M_i:          float = Field(0.8,     ge=0.0,  le=2.2,   description="Mach number")
     mdot_guess:   float = Field(20.0,    gt=0,              description="Initial mass-flow guess [kg/s]")
+
+
+class TurbojetLTORequest(BaseModel):
+    eng_param:    TurbojetEngineParam = Field(default_factory=TurbojetEngineParam)
+    eng_perf:     TurbojetEnginePerf  = Field(default_factory=TurbojetEnginePerf)
+    alt:          float = Field(0.0, ge=0.0, le=10000.0, description="Field elevation [ft]")
+    M_i:          float = Field(0.0, ge=0.0, le=0.30,    description="Runway/taxi Mach")
 
 
 class PhysicsTurbofanParam(BaseModel):
@@ -136,51 +222,84 @@ class PhysicsTurbofanParam(BaseModel):
                 d["hpt_n_stages"] = d["hpt_stages"]
             if "lpt_stages" in d and "lpt_n_stages" not in d:
                 d["lpt_n_stages"] = d["lpt_stages"]
+            if "A8_core" in d and "A8" not in d:
+                d["A8"] = d["A8_core"]
             return d
         return data
 
 class PhysicsTurbofanPerf(BaseModel):
-    eta_i:        float = Field(DEFAULT_TF_PERF["eta_i"],        gt=0.0, le=1.0)
-    FPR:          float = Field(DEFAULT_TF_PERF["FPR"],          gt=1.0)
-    eta_fan:      float = Field(DEFAULT_TF_PERF["eta_fan"],      gt=0.0, le=1.0)
-    CPR:          float = Field(DEFAULT_TF_PERF["CPR"],          gt=1.0)
-    eta_hpc:      float = Field(DEFAULT_TF_PERF["eta_hpc"],      gt=0.0, le=1.0)
-    eta_b:        float = Field(DEFAULT_TF_PERF["eta_b"],        gt=0.0, le=1.0)
-    dp_over_p:    float = Field(DEFAULT_TF_PERF["dp_over_p"],    ge=0.0, lt=1.0)
-    max_f:        float = Field(DEFAULT_TF_PERF["max_f"],        gt=0.0, le=1.0)
-    min_f:        float = Field(DEFAULT_TF_PERF["min_f"],        ge=0.0, lt=1.0)
-    V_nominal:    float = Field(DEFAULT_TF_PERF["V_nominal"],    gt=0.0)
-    T_max:        float = Field(DEFAULT_TF_PERF["T_max"],        gt=300.0)
-    eta_hpt:      float = Field(DEFAULT_TF_PERF["eta_hpt"],      gt=0.0, le=1.0)
-    eta_lpt:      float = Field(DEFAULT_TF_PERF["eta_lpt"],      gt=0.0, le=1.0)
-    mech_loss_hp: float = Field(DEFAULT_TF_PERF["mech_loss_hp"], gt=0.0, le=1.0)
-    mech_loss_lp: float = Field(DEFAULT_TF_PERF["mech_loss_lp"], gt=0.0, le=1.0)
-    eta_noz_core: float = Field(DEFAULT_TF_PERF["eta_noz_core"], gt=0.0, le=1.0)
-    eta_noz_byp:  float = Field(DEFAULT_TF_PERF["eta_noz_byp"],  gt=0.0, le=1.0)
+    eta_i:              float = Field(DEFAULT_TF_PERF["eta_i"],              gt=0.0, le=1.0)
+    FPR:                float = Field(DEFAULT_TF_PERF["FPR"],                gt=1.0)
+    eta_fan:            float = Field(DEFAULT_TF_PERF["eta_fan"],            gt=0.0, le=1.0)
+    CPR:                float = Field(DEFAULT_TF_PERF["CPR"],                gt=1.0)
+    eta_hpc:            float = Field(DEFAULT_TF_PERF["eta_hpc"],            gt=0.0, le=1.0)
+    eta_b:              float = Field(DEFAULT_TF_PERF["eta_b"],              gt=0.0, le=1.0)
+    dp_over_p:          float = Field(DEFAULT_TF_PERF["dp_over_p"],          ge=0.0, lt=1.0)
+    max_f:              float = Field(DEFAULT_TF_PERF["max_f"],              gt=0.0, le=1.0)
+    min_f:              float = Field(DEFAULT_TF_PERF["min_f"],              ge=0.0, lt=1.0)
+    V_nominal:          float = Field(DEFAULT_TF_PERF["V_nominal"],          gt=0.0)
+    T_max:              float = Field(DEFAULT_TF_PERF["T_max"],              gt=300.0)
+    eta_hpt:            float = Field(DEFAULT_TF_PERF["eta_hpt"],            gt=0.0, le=1.0)
+    eta_lpt:            float = Field(DEFAULT_TF_PERF["eta_lpt"],            gt=0.0, le=1.0)
+    mech_loss_hp:       float = Field(DEFAULT_TF_PERF["mech_loss_hp"],       gt=0.0, le=1.0)
+    mech_loss_lp:       float = Field(DEFAULT_TF_PERF["mech_loss_lp"],       gt=0.0, le=1.0)
+    cooling_bleed_frac: float = Field(DEFAULT_TF_PERF["cooling_bleed_frac"], ge=0.0, le=0.20)
+    gear_ratio:         float = Field(DEFAULT_TF_PERF["gear_ratio"],         ge=1.0, le=5.0)
+    eta_gearbox:        float = Field(DEFAULT_TF_PERF["eta_gearbox"],        ge=0.90, le=1.0)
+    eta_noz_core:       float = Field(DEFAULT_TF_PERF["eta_noz_core"],       gt=0.0, le=1.0)
+    eta_noz_byp:        float = Field(DEFAULT_TF_PERF["eta_noz_byp"],        gt=0.0, le=1.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_perf_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "CPR_hpc" in d and "CPR" not in d:
+                d["CPR"] = d["CPR_hpc"]
+            if "TIT" in d and "T_max" not in d:
+                d["T_max"] = d["TIT"]
+            if "eta_noz_fan" in d and "eta_noz_byp" not in d:
+                d["eta_noz_byp"] = d["eta_noz_fan"]
+            return d
+        return data
 
 
 class PhysicsTurbofanSingleRequest(BaseModel):
     eng_param:       PhysicsTurbofanParam = Field(default_factory=PhysicsTurbofanParam)
     eng_perf:        PhysicsTurbofanPerf  = Field(default_factory=PhysicsTurbofanPerf)
-    throttle_pos:    float = Field(1.0,     ge=0.5, le=1.0)
-    alt:             float = Field(35000.0, ge=0,   le=65000)
-    M_i:             float = Field(0.8,     ge=0.0, le=0.9)
+    throttle_pos:    float = Field(1.0,     ge=0.10, le=1.0)
+    alt:             float = Field(35000.0, ge=0,    le=65000)
+    M_i:             float = Field(0.8,     ge=0.0,  le=2.2)
     mdot_core_guess: float = Field(20.0,    gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_request_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "param" in d and "eng_param" not in d:
+                d["eng_param"] = d["param"]
+            if "perf" in d and "eng_perf" not in d:
+                d["eng_perf"] = d["perf"]
+            if "mach" in d and "M_i" not in d:
+                d["M_i"] = d["mach"]
+            return d
+        return data
 
 class PhysicsTurbofanSweepRequest(BaseModel):
     eng_param:       PhysicsTurbofanParam = Field(default_factory=PhysicsTurbofanParam)
     eng_perf:        PhysicsTurbofanPerf  = Field(default_factory=PhysicsTurbofanPerf)
-    throttle_pos:    float = Field(1.0,     ge=0.5, le=1.0)
+    throttle_pos:    float = Field(1.0,     ge=0.10, le=1.0)
     sweep_param:     Literal["altitude", "mach", "throttle", "bpr", "cpr", "fpr"] = "altitude"
     # Altitude sweep
     alt_start:       float = Field(0.0,     ge=0, le=65000)
     alt_end:         float = Field(40000.0, ge=0, le=65000)
     # Mach sweep
-    mach_start:      float = Field(0.0,  ge=0.0, le=0.9)
-    mach_end:        float = Field(0.8,  ge=0.0, le=0.9)
+    mach_start:      float = Field(0.0,  ge=0.0, le=2.2)
+    mach_end:        float = Field(0.8,  ge=0.0, le=2.2)
     # Throttle sweep
-    throttle_start:  float = Field(0.5, ge=0.5, le=1.0)
-    throttle_end:    float = Field(1.0, ge=0.5, le=1.0)
+    throttle_start:  float = Field(0.5, ge=0.10, le=1.0)
+    throttle_end:    float = Field(1.0, ge=0.10, le=1.0)
     # BPR sweep
     bpr_start:       float = Field(3.0, ge=0.1, le=15.0)
     bpr_end:         float = Field(8.0, ge=0.1, le=15.0)
@@ -194,29 +313,29 @@ class PhysicsTurbofanSweepRequest(BaseModel):
     n_steps:         int   = Field(10, ge=3, le=40, description="Number of points in sweep")
     # Fixed values when not sweeping
     fixed_alt:       float = Field(35000.0, ge=0, le=65000)
-    fixed_mach:      float = Field(0.8,     ge=0.0, le=0.9)
-    fixed_throttle:  float = Field(1.0,     ge=0.5, le=1.0)
+    fixed_mach:      float = Field(0.8,     ge=0.0, le=2.2)
+    fixed_throttle:  float = Field(1.0,     ge=0.10, le=1.0)
     mdot_core_guess: float = Field(20.0,    gt=0)
 
 class TurbojetSweepRequest(BaseModel):
     eng_param:    TurbojetEngineParam = Field(default_factory=TurbojetEngineParam)
     eng_perf:     TurbojetEnginePerf  = Field(default_factory=TurbojetEnginePerf)
-    throttle_pos: float = Field(1.0,   ge=0.5, le=1.0)
+    throttle_pos: float = Field(1.0,   ge=0.10, le=1.0)
     sweep_param:  Literal["altitude", "mach", "throttle"] = "altitude"
     # Altitude sweep
     alt_start:    float = Field(0.0,     ge=0, le=65000)
     alt_end:      float = Field(40000.0, ge=0, le=65000)
     # Mach sweep
-    mach_start:   float = Field(0.0,  ge=0.0, le=0.9)
-    mach_end:     float = Field(0.8,  ge=0.0, le=0.9)
+    mach_start:   float = Field(0.0,  ge=0.0, le=2.2)
+    mach_end:     float = Field(0.8,  ge=0.0, le=2.2)
     # Throttle sweep
-    throttle_start: float = Field(0.5, ge=0.5, le=1.0)
-    throttle_end:   float = Field(1.0, ge=0.5, le=1.0)
+    throttle_start: float = Field(0.5, ge=0.10, le=1.0)
+    throttle_end:   float = Field(1.0, ge=0.10, le=1.0)
     # Sweep resolution
     n_steps:  int   = Field(15, ge=3, le=40, description="Number of points in sweep")
     # Fixed values when not sweeping
     fixed_alt:      float = Field(35000.0, ge=0, le=65000)
-    fixed_mach:     float = Field(0.8,     ge=0.0, le=0.9)
+    fixed_mach:     float = Field(0.8,     ge=0.0, le=2.2)
     mdot_guess:     float = Field(20.0,    gt=0)
 
 
@@ -241,13 +360,15 @@ class TurbofanSweepRequest(BaseModel):
 
 
 class OffDesignSingleRequest(BaseModel):
-    N_rel:         float = Field(1.0,    ge=0.55, le=1.10, description="Relative spool speed N/N_des")
+    N_rel:         float = Field(1.0,    ge=0.50, le=1.10, description="Relative spool speed N/N_des")
     alt:           float = Field(35000.0, ge=0,   le=65000, description="Altitude [ft]")
     mach:          float = Field(0.8,    ge=0.0,  le=0.95,  description="Flight Mach number")
     cpr_des:       float = Field(8.0,    ge=2.0,  le=35.0,  description="Design compressor pressure ratio")
     eta_c_des:     float = Field(0.85,   ge=0.60, le=0.98,  description="Design compressor efficiency")
     mdot_corr_des: float = Field(20.0,   gt=0,    le=200.0, description="Design corrected mass flow [kg/s]")
     A8:            Optional[float] = Field(None, gt=0, description="Nozzle throat area [m²]. Sized to design if omitted.")
+    des_alt:       float = Field(35000.0, ge=0,   le=65000, description="Reference design point altitude [ft]")
+    des_mach:      float = Field(0.80,   ge=0.0,  le=0.95,  description="Reference design point Mach number")
     eta_i:         float = Field(0.98,   ge=0.70, le=1.0)
     eta_t:         float = Field(0.88,   ge=0.60, le=0.98)
     mech_loss:     float = Field(0.99,   ge=0.80, le=1.0)
@@ -255,15 +376,15 @@ class OffDesignSingleRequest(BaseModel):
     dp_over_p:     float = Field(0.04,   ge=0.01, le=0.15)
     T_max:         float = Field(1500.0, ge=800.0, le=2200.0)
     eta_noz:       float = Field(0.98,   ge=0.60, le=1.0)
-    throttle_pos:  float = Field(1.0,    ge=0.5,  le=1.0)
+    throttle_pos:  float = Field(1.0,    ge=0.20, le=1.0)
 
 
 class OffDesignSweepRequest(BaseModel):
     sweep_param:   Literal["speed", "altitude", "mach"] = "speed"
     n_steps:       int   = Field(15, ge=3, le=40)
-    speed_start:   float = Field(0.65, ge=0.55, le=1.10)
-    speed_end:     float = Field(1.05, ge=0.55, le=1.10)
-    fixed_speed:   float = Field(1.00, ge=0.55, le=1.10)
+    speed_start:   float = Field(0.55, ge=0.50, le=1.10)
+    speed_end:     float = Field(1.05, ge=0.50, le=1.10)
+    fixed_speed:   float = Field(1.00, ge=0.50, le=1.10)
     alt_start:     float = Field(0.0, ge=0, le=65000)
     alt_end:       float = Field(40000.0, ge=0, le=65000)
     fixed_alt:     float = Field(35000.0, ge=0, le=65000)
@@ -274,6 +395,8 @@ class OffDesignSweepRequest(BaseModel):
     eta_c_des:     float = Field(0.85, ge=0.60, le=0.98)
     mdot_corr_des: float = Field(20.0, gt=0, le=200.0)
     A8:            Optional[float] = Field(None, gt=0)
+    des_alt:       float = Field(35000.0, ge=0, le=65000)
+    des_mach:      float = Field(0.80, ge=0.0, le=0.95)
     eta_i:         float = Field(0.98, ge=0.70, le=1.0)
     eta_t:         float = Field(0.88, ge=0.60, le=0.98)
     mech_loss:     float = Field(0.99, ge=0.80, le=1.0)
@@ -281,7 +404,7 @@ class OffDesignSweepRequest(BaseModel):
     dp_over_p:     float = Field(0.04, ge=0.01, le=0.15)
     T_max:         float = Field(1500.0, ge=800.0, le=2200.0)
     eta_noz:       float = Field(0.98, ge=0.60, le=1.0)
-    throttle_pos:  float = Field(1.0, ge=0.5, le=1.0)
+    throttle_pos:  float = Field(1.0, ge=0.20, le=1.0)
 
 
 # Mean-Line Aerodynamics Schemas
@@ -429,7 +552,7 @@ class TurbopropSingleRequest(BaseModel):
 
 
 class TurbopropSweepRequest(BaseModel):
-    sweep_param:  Literal["power", "altitude", "mach"] = "power"
+    sweep_param:  Literal["power", "altitude", "mach", "cpr"] = "power"
     n_steps:      int   = Field(10, ge=3, le=25)
     alt_fixed:    float = Field(15000.0, ge=0.0, le=45000.0)
     mach_fixed:   float = Field(0.40, ge=0.0, le=0.75)
@@ -453,15 +576,15 @@ class TurbopropSweepRequest(BaseModel):
         return data
 
 
-# Mission Simulation Schemas
+# Mission Simulation & Airframe Sizing Schemas
 class MissionSimulateRequest(BaseModel):
     aircraft_type:      str = "generic_twin"
-    cruise_alt_ft:      float = Field(35000.0, ge=10000.0, le=45000.0)
-    cruise_mach:        float = Field(0.78, ge=0.40, le=0.88)
-    cruise_distance_nm: float = Field(1200.0, ge=100.0, le=10000.0)
+    cruise_alt_ft:      float = Field(35000.0, ge=500.0, le=55000.0)
+    cruise_mach:        float = Field(0.78, ge=0.05, le=0.95)
+    cruise_distance_nm: float = Field(1200.0, ge=10.0, le=12000.0)
     payload_kg:         float = Field(9000.0, ge=0.0, le=60000.0)
-    fuel_load_kg:       Optional[float] = Field(None, ge=1000.0, le=120000.0)
-    engine_base_tsfc:   float = Field(16.5, ge=10.0, le=35.0)
+    fuel_load_kg:       Optional[float] = Field(None, ge=0.5, le=120000.0)
+    engine_base_tsfc:   float = Field(16.5, ge=5.0, le=50.0)
 
     @model_validator(mode="before")
     @classmethod
@@ -476,13 +599,36 @@ class MissionSimulateRequest(BaseModel):
         return data
 
 
+class MissionSizingRequest(BaseModel):
+    gross_mass_kg:      float = Field(25.0, ge=1.0, le=400000.0)
+    wing_loading_kg_m2: Optional[float] = Field(None, ge=5.0, le=1000.0)
+    aspect_ratio:       float = Field(10.0, ge=3.0, le=25.0)
+    taper_ratio:        float = Field(0.65, ge=0.10, le=1.0)
+    V_H:                float = Field(0.50, ge=0.10, le=1.5)
+    V_V:                float = Field(0.04, ge=0.01, le=0.5)
+    material:           str = Field("composite")
+
+
+class MissionAirspeedTrendsRequest(BaseModel):
+    gross_mass_kg:    float = Field(25.0, ge=1.0, le=400000.0)
+    wing_area_m2:     float = Field(1.60, ge=0.1, le=1000.0)
+    aspect_ratio:     float = Field(10.0, ge=3.0, le=25.0)
+    CD0:              float = Field(0.0240, ge=0.005, le=0.10)
+    oswald_e:         float = Field(0.85, ge=0.50, le=1.0)
+    CL_max:           float = Field(1.35, ge=0.80, le=2.5)
+    alt_ft:           float = Field(8000.0, ge=0.0, le=55000.0)
+    n_points:         int = Field(35, ge=15, le=100)
+    engine_base_tsfc: float = Field(18.0, ge=5.0, le=50.0)
+
+
+
 # Fast Surrogate Schemas
 class SurrogatePredictRequest(BaseModel):
     alt_ft:   float = Field(35000.0, ge=0.0, le=45000.0)
-    mach:     float = Field(0.80, ge=0.0, le=0.90)
-    throttle: float = Field(1.00, ge=0.50, le=1.0)
-    CPR:      float = Field(14.0, ge=4.0, le=25.0)
-    TIT_K:    float = Field(1450.0, ge=1100.0, le=1800.0)
+    mach:     float = Field(0.80, ge=0.0, le=0.95)
+    throttle: float = Field(1.00, ge=0.20, le=1.0)
+    CPR:      float = Field(14.0, ge=4.0, le=30.0)
+    TIT_K:    float = Field(1450.0, ge=1100.0, le=1850.0)
 
     @model_validator(mode="before")
     @classmethod
@@ -507,10 +653,10 @@ class SurrogateSurfaceRequest(BaseModel):
     n_points:       Optional[int] = Field(30, ge=5, le=100)
     fixed_params:   Optional[Dict[str, Any]] = None
     fixed_alt:      float = Field(35000.0, ge=0.0, le=45000.0)
-    fixed_mach:     float = Field(0.80, ge=0.0, le=0.90)
-    fixed_throttle: float = Field(1.00, ge=0.30, le=1.0)
+    fixed_mach:     float = Field(0.80, ge=0.0, le=0.95)
+    fixed_throttle: float = Field(1.00, ge=0.20, le=1.0)
     fixed_cpr:      float = Field(14.0, ge=4.0, le=35.0)
-    fixed_tit:      float = Field(1450.0, ge=1100.0, le=1800.0)
+    fixed_tit:      float = Field(1450.0, ge=1100.0, le=1850.0)
     grid_res:       int   = Field(15, ge=5, le=30)
 
     @model_validator(mode="before")
@@ -589,14 +735,16 @@ class HybridSweepRequest(BaseModel):
 @app.get("/")
 def root(request: Request):
     accept = request.headers.get("accept", "")
-    frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
-    # If a browser requests the root URL, serve the interactive simulator UI
-    if "text/html" in accept and os.path.exists(frontend_path):
-        return FileResponse(frontend_path)
+    index_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    # If a browser requests the root URL, serve the interactive Obsidian Blueprint UI
+    if "text/html" in accept and os.path.exists(index_path):
+        return FileResponse(index_path)
     # Default / API JSON response
     return {
         "status": "online",
         "service": "Gas Turbine Engine Simulator",
+        "version": "0.5.0",
+        "theme": "Obsidian Vector Blueprint",
         "models": [
             "turbojet",
             "physics_turbofan",
@@ -614,11 +762,14 @@ def root(request: Request):
 
 
 @app.get("/app")
+@app.get("/index.html")
+@app.get("/v0.5")
+@app.get("/legacy")
 def serve_app():
     """Direct route to serve the interactive web simulator frontend."""
-    frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
-    if os.path.exists(frontend_path):
-        return FileResponse(frontend_path)
+    index_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
     raise HTTPException(status_code=404, detail="frontend/index.html not found")
 
 
@@ -629,7 +780,7 @@ def api_health():
     return {
         "status": "online",
         "service": "Gas Turbine Engine Simulator",
-        "version": "1.0.0",
+        "version": "0.5.0",
         "models_count": 9,
         "active_models": [
             "turbojet", "physics_turbofan", "turbofan_cf34", "off_design",
@@ -689,9 +840,29 @@ def turbojet_single(req: TurbojetSingleRequest):
             M_i=req.M_i,
             mdot_guess=req.mdot_guess,
         )
+        if "stations" in result and "brayton_cycle" not in result:
+            result["brayton_cycle"] = generate_brayton_ts_loop(result["stations"], is_turbofan=False)
         return _sanitize(result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/turbojet/lto_emissions")
+def turbojet_lto_emissions(req: TurbojetLTORequest):
+    """
+    Run 4-mode ICAO Annex 16 Volume II certified LTO cycle (Takeoff, Climbout, Approach, Taxi/Idle)
+    and return mode-by-mode emissions, total mass of pollutants, and Dp/Foo certified metric.
+    """
+    try:
+        res = calc_icao_lto_cycle(
+            eng_param=req.eng_param.model_dump(),
+            eng_perf=req.eng_perf.model_dump(),
+            alt=req.alt,
+            M_i=req.M_i,
+        )
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/turbojet/sweep")
@@ -754,9 +925,11 @@ def physics_turbofan_single(req: PhysicsTurbofanSingleRequest):
             M_i=req.M_i,
             mdot_core_guess=req.mdot_core_guess,
         )
+        if "stations" in result and "brayton_cycle" not in result:
+            result["brayton_cycle"] = generate_brayton_ts_loop(result["stations"], is_turbofan=True)
         return _sanitize(result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 @app.get("/api/physics_turbofan/defaults")
 def physics_turbofan_defaults():
@@ -782,7 +955,7 @@ def physics_turbofan_ts_diagram(req: PhysicsTurbofanSingleRequest):
             mdot_core_guess=req.mdot_core_guess,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
     stations = result.get("stations", {})
     ordered = ["a", "1", "2", "13", "21", "3", "4", "41", "5", "8", "18"]
@@ -803,6 +976,7 @@ def physics_turbofan_ts_diagram(req: PhysicsTurbofanSingleRequest):
 
     return _sanitize({
         "points": points,
+        "brayton_cycle": generate_brayton_ts_loop(stations, is_turbofan=True),
         "performance": {
             "T":         result.get("T", 0.0),
             "T_core":    result.get("T_core", 0.0),
@@ -927,6 +1101,7 @@ def turbofan_envelope():
 
 
 @app.post("/api/turbofan/single")
+@app.post("/api/cf34/single")
 def turbofan_single(req: TurbofanSingleRequest):
     """
     Interpolate the CF34 deck at a given (altitude, Mach, power code).
@@ -938,6 +1113,10 @@ def turbofan_single(req: TurbofanSingleRequest):
         result["Fn_kN"]  = round(result["Fn"]  * 0.00444822, 3)
         result["Fg_kN"]  = round(result["Fg"]  * 0.00444822, 3)
         result["Wf_kgs"] = round(result["Wf"]  * 0.453592, 5)   # lbm/s → kg/s
+        result["Wc_kgs"] = round(float(result.get("fan:stat:W", 314.0)) * 0.45359237, 2)
+        result["TSFC_lbm_lbfh"] = round(float(result.get("TSFC", 0.0)), 4)
+        result["TSFC_g_kns"] = round((result["Wf_kgs"] * 1000.0) / result["Fn_kN"], 2) if result["Fn_kN"] > 0 else 0.0
+        result["TSFC"] = result["TSFC_g_kns"]
         result["alt_ft"] = req.alt
         result["Mach"]   = req.MN
         result["PC"]     = req.PC
@@ -1073,7 +1252,7 @@ def turbofan_single(req: TurbofanSingleRequest):
         result["stations"] = stations
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
 
 @app.post("/api/turbofan/sweep")
@@ -1103,6 +1282,10 @@ def turbofan_sweep(req: TurbofanSweepRequest):
             r["Fn_kN"]  = round(r["Fn"]  * 0.00444822, 3)
             r["Fg_kN"]  = round(r["Fg"]  * 0.00444822, 3)
             r["Wf_kgs"] = round(r["Wf"]  * 0.453592, 5)
+            r["Wc_kgs"] = round(float(r.get("fan:stat:W", 314.0)) * 0.45359237, 2)
+            r["TSFC_lbm_lbfh"] = round(float(r.get("TSFC", 0.0)), 4)
+            r["TSFC_g_kns"] = round((r["Wf_kgs"] * 1000.0) / r["Fn_kN"], 2) if r["Fn_kN"] > 0 else 0.0
+            r["TSFC"] = r["TSFC_g_kns"]
             r["alt_ft"] = kwargs.get("Hp", req.fixed_alt)    # use Hp key for consistency
             r["Mach"]   = kwargs.get("MN",  req.fixed_mach)
             r["PC"]     = kwargs.get("PC",  req.fixed_pc)
@@ -1121,6 +1304,35 @@ def turbofan_sweep(req: TurbofanSweepRequest):
 def turbofan_altitudes():
     """Return the list of altitude values present in the CF34 deck."""
     return {"altitudes": ALTS_LIST}
+
+
+@app.get("/api/cf34/sweep_altitude")
+def cf34_sweep_altitude(MN: float = 0.8, PC: float = 1.0, n_points: int = 25):
+    """Convenience endpoint for fast CF34 altitude sweep curves."""
+    points = []
+    for alt in np.linspace(0.0, 45000.0, n_points):
+        try:
+            r = interp_altMNPC(Hp=float(alt), MN=float(MN), PC=float(PC))
+            fn_kN = round(float(r["Fn"]) * 0.00444822, 3)
+            points.append({"alt": round(float(alt), 0), "alt_ft": round(float(alt), 0), "Fn_kN": fn_kN})
+        except Exception:
+            pass
+    return {"points": points}
+
+
+@app.get("/api/cf34/sweep_mach")
+def cf34_sweep_mach(alt: float = 35000.0, PC: float = 1.0, n_points: int = 25):
+    """Convenience endpoint for fast CF34 Mach sweep curves."""
+    points = []
+    for mn in np.linspace(0.10, 0.88, n_points):
+        try:
+            r = interp_altMNPC(Hp=float(alt), MN=float(mn), PC=float(PC))
+            fn_kN = round(float(r["Fn"]) * 0.00444822, 3)
+            points.append({"MN": round(float(mn), 2), "Mach": round(float(mn), 2), "Fn_kN": fn_kN})
+        except Exception:
+            pass
+    return {"points": points}
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1144,7 +1356,7 @@ def turbojet_ts_diagram(req: TurbojetSingleRequest):
             mdot_guess=req.mdot_guess,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
     stations = result["stations"]
 
@@ -1349,7 +1561,7 @@ def off_design_map(
         cmap = CompressorMap(cpr_des=cpr_des, eta_c_des=eta_c_des, mdot_corr_des=mdot_corr_des)
         return _sanitize(cmap.get_map_curves())
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/off_design/single")
@@ -1362,7 +1574,7 @@ def off_design_single(req: OffDesignSingleRequest):
         res = solve_off_design(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/off_design/sweep")
@@ -1375,7 +1587,7 @@ def off_design_sweep(req: OffDesignSweepRequest):
         res = run_off_design_sweep(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/off_design/sweep/csv")
@@ -1397,7 +1609,7 @@ def off_design_sweep_csv(req: OffDesignSweepRequest):
 
         return PlainTextResponse(content=buf.getvalue(), media_type="text/csv")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1433,7 +1645,7 @@ def meanline_compressor_stage_endpoint(req: MeanlineCompressorStageRequest):
         res = solve_compressor_stage(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/meanline/multistage_compressor")
@@ -1443,7 +1655,7 @@ def meanline_multistage_compressor_endpoint(req: MeanlineMultistageRequest):
         res = solve_multistage_compressor_meanline(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/meanline/turbine_stage")
@@ -1453,7 +1665,7 @@ def meanline_turbine_stage_endpoint(req: MeanlineTurbineStageRequest):
         res = solve_turbine_stage(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1479,7 +1691,7 @@ def turboprop_single(req: TurbopropSingleRequest):
         res = calc_turboprop_performance(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/turboprop/sweep")
@@ -1489,7 +1701,7 @@ def turboprop_sweep(req: TurbopropSweepRequest):
         res = run_turboprop_sweep(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1498,25 +1710,59 @@ def turboprop_sweep(req: TurbopropSweepRequest):
 
 @app.get("/api/mission/defaults")
 def mission_defaults():
-    """Return default mission profile and regional jet aircraft parameters."""
-    return {
+    """Return default mission profile, aircraft presets, and airframe sizing defaults."""
+    return _sanitize({
         "cruise_alt_ft": 35000.0,
         "cruise_mach": 0.78,
         "cruise_distance_nm": 1200.0,
         "payload_kg": 9000.0,
         "fuel_load_kg": None,
         "engine_base_tsfc": 16.5,
-    }
+        "aircraft_type": "generic_twin",
+        "presets": AIRCRAFT_PRESETS,
+    })
+
+
+@app.get("/api/mission/presets")
+def mission_presets():
+    """Return all available predefined aircraft and drone sizing configurations."""
+    return _sanitize(AIRCRAFT_PRESETS)
+
+
+@app.post("/api/mission/sizing")
+def mission_sizing(req: MissionSizingRequest):
+    """
+    Computes closed-loop wing and empennage geometry from Wing Loading (W/S)
+    and mass fractions, exactly matching General Sizing Blank.xlsx formulas.
+    """
+    try:
+        res = size_airframe_geometry(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/api/mission/airspeed_trends")
+def mission_airspeed_trends(req: MissionAirspeedTrendsRequest):
+    """
+    Evaluates continuous polar trends across airspeeds (General Sizing Blank Trends sheet):
+    Parasitic Drag D0, Induced Drag Di, Wave Drag Dw, Total Drag, L/D, and Power Required.
+    """
+    try:
+        res = compute_airspeed_trends(**req.model_dump())
+        return _sanitize(res)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/mission/simulate")
 def mission_simulate(req: MissionSimulateRequest):
-    """Simulate a complete 6-segment flight mission and generate payload-range envelope."""
+    """Simulate a complete 7-phase flight mission and generate payload-range envelope."""
     try:
         res = run_mission_simulation(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1542,7 +1788,7 @@ def surrogate_predict(req: SurrogatePredictRequest):
         res = GLOBAL_SURROGATE.predict_point(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/surrogate/surface")
@@ -1579,7 +1825,7 @@ def surrogate_surface(req: SurrogateSurfaceRequest):
             )
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1619,7 +1865,7 @@ def hybrid_single(req: HybridSingleRequest):
         res = evaluate_single_hybrid_point(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/hybrid/mission")
@@ -1629,7 +1875,7 @@ def hybrid_mission(req: HybridMissionRequest):
         res = run_hybrid_mission_simulation(**req.model_dump())
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/api/hybrid/sweep")
@@ -1656,5 +1902,5 @@ def hybrid_sweep(req: HybridSweepRequest):
         )
         return _sanitize(res)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 

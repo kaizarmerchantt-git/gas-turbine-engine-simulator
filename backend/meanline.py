@@ -16,6 +16,170 @@ import math
 from typing import Dict, List, Any, Optional, Tuple
 
 
+def solve_radial_equilibrium_free_vortex(
+    r_mean: float,
+    U_mean: float,
+    C_a: float,
+    C_theta1_mean: float,
+    C_theta2_mean: float,
+    r_hub: float,
+    r_tip: float,
+    n_radial: int = 5,
+    gamma: float = 1.40,
+    cp: float = 1005.0,
+    T01: float = 288.15,
+) -> Dict[str, Any]:
+    """
+    Computes Free-Vortex radial equilibrium spanwise variation across Hub, Mean, and Tip:
+    - r * C_theta = const = r_mean * C_theta_mean
+    - C_a(r) = const = C_a
+    - U(r) = U_mean * (r / r_mean)
+    """
+    R_gas = cp * (gamma - 1.0) / gamma
+    n_pts = max(3, n_radial)
+    r_hub_safe = max(0.01, min(r_hub, r_mean * 0.95))
+    r_tip_safe = max(r_mean * 1.05, r_tip)
+    radii = [r_hub_safe + i * (r_tip_safe - r_hub_safe) / (n_pts - 1) for i in range(n_pts)]
+
+    sections = []
+    for r in radii:
+        r_ratio = r_mean / r if r > 0 else 1.0
+        U_r = U_mean * (r / r_mean) if r_mean > 0 else U_mean
+        C_th1_r = C_theta1_mean * r_ratio
+        C_th2_r = C_theta2_mean * r_ratio
+        W_th1_r = C_th1_r - U_r
+        W_th2_r = C_th2_r - U_r
+
+        C1_r = math.hypot(C_a, C_th1_r)
+        W1_r = math.hypot(C_a, W_th1_r)
+        C2_r = math.hypot(C_a, C_th2_r)
+        W2_r = math.hypot(C_a, W_th2_r)
+
+        alpha1_deg = math.degrees(math.atan2(C_th1_r, C_a))
+        beta1_deg = math.degrees(math.atan2(W_th1_r, C_a))
+        alpha2_deg = math.degrees(math.atan2(C_th2_r, C_a))
+        beta2_deg = math.degrees(math.atan2(W_th2_r, C_a))
+
+        reaction_r = 1.0 - (C_th1_r + C_th2_r) / (2.0 * U_r) if U_r > 0 else 0.5
+        de_haller_r = W2_r / W1_r if W1_r > 0 else 1.0
+
+        T1_r = max(100.0, T01 - (C1_r ** 2) / (2.0 * cp))
+        a1_r = math.sqrt(gamma * R_gas * T1_r)
+        M_rel1_r = W1_r / a1_r if a1_r > 0 else 0.0
+
+        sections.append({
+            "radius_m": round(r, 4),
+            "radius_mm": round(r * 1000.0, 1),
+            "span_pct": round(((r - r_hub_safe) / max(1e-4, r_tip_safe - r_hub_safe)) * 100.0, 1),
+            "U_ms": round(U_r, 1),
+            "alpha1_deg": round(alpha1_deg, 2),
+            "beta1_deg": round(beta1_deg, 2),
+            "alpha2_deg": round(alpha2_deg, 2),
+            "beta2_deg": round(beta2_deg, 2),
+            "reaction": round(reaction_r, 3),
+            "de_haller": round(de_haller_r, 3),
+            "M_rel1": round(M_rel1_r, 3),
+        })
+
+    return {
+        "hub": sections[0],
+        "mean": sections[len(sections) // 2],
+        "tip": sections[-1],
+        "sections": sections,
+    }
+
+
+def calc_profile_and_secondary_losses(
+    df_rotor: float,
+    solidity: float,
+    beta1_deg: float,
+    beta2_deg: float,
+    phi: float,
+) -> Dict[str, Any]:
+    """
+    Computes Lieblein profile, secondary, and tip clearance aerodynamic losses.
+    """
+    b1_rad = math.radians(beta1_deg)
+    b2_rad = math.radians(beta2_deg)
+    cos_b1 = max(0.2, abs(math.cos(b1_rad)))
+    cos_b2 = max(0.2, abs(math.cos(b2_rad)))
+
+    theta_c = 0.004 / max(0.1, 1.0 - 1.17 * min(0.60, max(0.0, df_rotor)))
+    omega_profile = 2.0 * theta_c * (max(0.1, solidity) / cos_b2) * ((cos_b1 / cos_b2) ** 2)
+
+    beta_m = 0.5 * (b1_rad + b2_rad)
+    cos_bm = max(0.2, abs(math.cos(beta_m)))
+    cl = 2.0 * (1.0 / max(0.1, solidity)) * abs(math.tan(b1_rad) - math.tan(b2_rad)) * cos_bm
+    omega_sec = 0.018 * (cl ** 2) / max(0.1, solidity)
+    omega_tip = 0.5 * 0.02 * (cl ** 2) / max(0.1, solidity)
+    omega_total = omega_profile + omega_sec + omega_tip
+
+    eta_debit = min(0.15, 0.5 * omega_total * (phi ** 2) / (cos_bm ** 2))
+
+    return {
+        "omega_profile": round(omega_profile, 4),
+        "omega_secondary": round(omega_sec, 4),
+        "omega_tip": round(omega_tip, 4),
+        "omega_total": round(omega_total, 4),
+        "eta_debit": round(eta_debit, 4),
+        "lift_coefficient_cl": round(cl, 3),
+    }
+
+
+def generate_blade_airfoil_coords(
+    beta1_deg: float,
+    beta2_deg: float,
+    chord_mm: float = 60.0,
+    max_thickness_pct: float = 10.0,
+    n_pts: int = 25,
+) -> Dict[str, Any]:
+    """
+    Generates 2D airfoil suction and pressure surface coordinates for compressor blades.
+    """
+    stagger_deg = 0.5 * (beta1_deg + beta2_deg)
+    camber_deg = beta1_deg - beta2_deg
+    stagger_rad = math.radians(stagger_deg)
+    camber_rad = math.radians(camber_deg)
+
+    x_norm = [i / max(1, n_pts - 1) for i in range(n_pts)]
+    h_max = 0.25 * math.tan(0.5 * abs(camber_rad)) if abs(camber_rad) < 1.4 else 0.2
+    y_c = [4.0 * h_max * x * (1.0 - x) * (1.0 if camber_deg >= 0 else -1.0) for x in x_norm]
+
+    t_max = max_thickness_pct / 100.0
+    t_half = [
+        t_max * (1.4845 * math.sqrt(max(0.0, x)) - 0.63 * x - 1.758 * (x**2) + 1.4215 * (x**3) - 0.5175 * (x**4))
+        if x > 0 else 0.0
+        for x in x_norm
+    ]
+
+    suction = []
+    pressure = []
+    cos_s = math.cos(stagger_rad)
+    sin_s = math.sin(stagger_rad)
+
+    for i in range(n_pts):
+        x_base = x_norm[i] * chord_mm
+        y_mid = y_c[i] * chord_mm
+        dy = t_half[i] * chord_mm
+
+        xs = x_base * cos_s - (y_mid + dy) * sin_s
+        ys = x_base * sin_s + (y_mid + dy) * cos_s
+        suction.append({"x": round(float(xs), 2), "y": round(float(ys), 2)})
+
+        xp = x_base * cos_s - (y_mid - dy) * sin_s
+        yp = x_base * sin_s + (y_mid - dy) * cos_s
+        pressure.append({"x": round(float(xp), 2), "y": round(float(yp), 2)})
+
+    return {
+        "chord_mm": chord_mm,
+        "stagger_deg": round(stagger_deg, 2),
+        "camber_deg": round(camber_deg, 2),
+        "max_thickness_mm": round(t_max * chord_mm, 2),
+        "suction_surface": suction,
+        "pressure_surface": pressure,
+    }
+
+
 def solve_compressor_stage(
     T01: float,
     P01: float,
@@ -225,6 +389,39 @@ def solve_compressor_stage(
         "Mach_abs": round(M_C3, 3),
     }
 
+    # Free-Vortex Radial Equilibrium Synthesis (Hub - Mean - Tip)
+    radial_dist = solve_radial_equilibrium_free_vortex(
+        r_mean=r_mean,
+        U_mean=U,
+        C_a=C_a,
+        C_theta1_mean=C_theta1,
+        C_theta2_mean=C_theta2,
+        r_hub=r_hub_out,
+        r_tip=r_tip_out,
+        n_radial=5,
+        gamma=gamma,
+        cp=cp,
+        T01=T01,
+    )
+
+    # Lieblein Profile & Secondary Aerodynamic Losses
+    loss_metrics = calc_profile_and_secondary_losses(
+        df_rotor=df_rotor,
+        solidity=solidity,
+        beta1_deg=beta1_deg,
+        beta2_deg=beta2_deg,
+        phi=phi,
+    )
+
+    # 2D Blade Airfoil Coordinates Generation (Rotor mean section)
+    blade_airfoil = generate_blade_airfoil_coords(
+        beta1_deg=beta1_deg,
+        beta2_deg=beta2_deg,
+        chord_mm=60.0,
+        max_thickness_pct=10.0,
+        n_pts=25,
+    )
+
     return {
         "U": round(U, 2),
         "psi": round(psi, 4),
@@ -264,6 +461,9 @@ def solve_compressor_stage(
             "diffusion_factor_stator": round(df_stator, 3),
             "diffusion_factor_status": df_status,
         },
+        "radial_equilibrium": radial_dist,
+        "aerodynamic_losses": loss_metrics,
+        "blade_airfoil_2d": blade_airfoil,
         "geometry": {
             "blade_height_in_mm": round(blade_height_in * 1000.0, 1),
             "blade_height_out_mm": round(blade_height_out * 1000.0, 1),

@@ -1,53 +1,97 @@
 @echo off
-REM start.bat — Gas Turbine Engine Simulator startup (Windows)
-REM Run from the project root: start.bat
+REM start.bat - Gas Turbine Engine Simulator startup (Windows)
+REM Automatically handles working directory, pre-flight checks, and synchronized browser launch.
 
-echo ========================================
-echo   Gas Turbine Engine Simulator
-echo ========================================
+cd /d "%~dp0"
+
+echo ========================================================
+echo   AETHER-X // GAS TURBINE ENGINE SIMULATOR (v0.5.0)
+echo ========================================================
+echo   Project Directory: %~dp0
 echo.
 
-REM ── Check Python ─────────────────────────────────────────────────────────────
+REM -- Check Python ------------------------------------------------------------
+set "PY_CMD="
 where python >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: python not found.
-    echo Install Python 3.10+ from https://www.python.org/downloads/
+if not errorlevel 1 (
+    set "PY_CMD=python"
+) else (
+    where py >nul 2>&1
+    if not errorlevel 1 (
+        set "PY_CMD=py"
+    )
+)
+
+if "%PY_CMD%"=="" (
+    echo [ERROR] Python not found in system PATH.
+    echo Please install Python 3.10+ from https://www.python.org/downloads/
+    echo Ensure "Add Python to PATH" is checked during installation.
+    echo.
     pause
     exit /b 1
 )
-python --version
 
-REM ── Check Cantera ─────────────────────────────────────────────────────────────
-python -c "import cantera" >nul 2>&1
+for /f "tokens=*" %%v in ('%PY_CMD% --version 2^>^&1') do echo [OK] Python runtime: %%v
+
+REM -- Check/Setup Virtual Environment -----------------------------------------
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PY_CMD=%~dp0.venv\Scripts\python.exe"
+    echo [OK] Using virtual environment: %~dp0.venv
+)
+
+REM -- Check Cantera -----------------------------------------------------------
+%PY_CMD% -c "import cantera" >nul 2>&1
+if errorlevel 1 (
+    echo [NOTICE] Cantera not detected in current Python environment.
+    echo   Core engine cycles run natively using high-fidelity NASA-9 polynomials.
+    echo   Cantera is optional for standalone oracle cross-validation.
+) else (
+    echo [OK] Cantera verified - Oracle cross-validation available.
+)
+
+REM -- Check CF34 Deck ---------------------------------------------------------
+if not exist "%~dp0data\CF34_deck_v4.csv" (
+    echo [WARNING] CF34 deck not found at %~dp0data\CF34_deck_v4.csv
+    echo   Turbofan interpolation will not work until the CSV deck is present.
+) else (
+    echo [OK] CF34 performance deck verified.
+)
+
+REM -- Check Port 8000 Availability --------------------------------------------
+%PY_CMD% -c "import socket; s = socket.socket(); s.bind(('127.0.0.1', 8000)); s.close()" >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo WARNING: Cantera not found in current Python environment.
-    echo   Option A ^(pip^):   pip install cantera==3.0.0
-    echo   Option B ^(conda^): conda install -c conda-forge cantera=3.0.0
-    echo.
-    echo   The TURBOFAN model will still work without Cantera.
-    echo   See SETUP_GUIDE.md for full instructions.
+    echo [NOTICE] Port 8000 is currently in use by another process.
+    echo   If the simulator is already running in another window, access it at:
+    echo   http://localhost:8000/
     echo.
 )
 
-REM ── Check CF34 deck ───────────────────────────────────────────────────────────
-if not exist "data\CF34_deck_v4.csv" (
-    echo WARNING: CF34 deck not found at data\CF34_deck_v4.csv
-    echo   Turbofan interpolation will not work.
-    echo   Copy CF34_deck_v4.csv from the repository into the data\ folder.
-    echo.
-)
-
-REM ── Start backend & launch browser ─────────────────────────────────────────
+REM -- Launch Browser Synchronizer in Background ------------------------------
+echo.
 echo Starting FastAPI backend on http://localhost:8000 ...
-echo   API docs: http://localhost:8000/docs
-echo   Web App:  http://localhost:8000/
+echo   Web HUD:     http://localhost:8000/
+echo   API Docs:    http://localhost:8000/docs
 echo.
-echo   Launching Gas Turbine Simulator MVP in your default browser...
-echo   Press CTRL+C to stop.
+echo Press Ctrl+C in this window or run stop.bat in another terminal to stop the server.
+echo Launching web browser when backend is ready...
 echo.
 
-start "" "http://localhost:8000/"
-cd backend
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+set "LAUNCH_PY=%PY_CMD%"
+where pythonw >nul 2>&1
+if not errorlevel 1 set "LAUNCH_PY=pythonw"
+
+start "" "%LAUNCH_PY%" "%~dp0open_browser.py"
+
+REM -- Run Uvicorn from Backend Directory -------------------------------------
+cd /d "%~dp0backend"
+%PY_CMD% -m uvicorn main:app --host 0.0.0.0 --port 8000
+
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Backend exited with error code %errorlevel%.
+)
+
+echo.
+echo Server has stopped.
 pause
